@@ -263,6 +263,7 @@ class Game {
     const candidates = [];
     for (const enemy of this.enemies) {
       if (!enemy.alive || !enemy.romaji) continue;
+      if (enemy.x > this.canvas.width) continue;
       const fullRomaji = enemy.romaji.displayRomaji;
       if (fullRomaji.startsWith(buf)) {
         candidates.push(enemy);
