@@ -304,10 +304,18 @@ class Game {
   }
 
   _killEnemy(enemy) {
-    const heroX = 50;
+    const heroX = 55;
     const dx = enemy.x - heroX;
     const dy = enemy.y - this.heroY;
     this.heroDrawAngle = Math.atan2(dy, dx);
+
+    this.combo++;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+    const comboMult = 1 + Math.floor(this.combo / 3) * 0.2;
+    const pts = Math.floor(enemy.def.score * enemy.maxHp * comboMult);
+
+    enemy.dying = true;
+    enemy.alive = false;
 
     this.arrows.push({
       x: heroX,
@@ -317,43 +325,30 @@ class Game {
       enemy: enemy,
       speed: 4000,
       alive: true,
-      isBoss: enemy.type === 'boss'
+      isBoss: enemy.type === 'boss',
+      pts: pts,
+      combo: this.combo,
+      life: 1.0
     });
 
-    enemy.alive = false;
-    this.kills++;
-    this.combo++;
-    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-
-    const comboMult = 1 + Math.floor(this.combo / 3) * 0.2;
-    const pts = Math.floor(enemy.def.score * enemy.maxHp * comboMult);
-    this.score += pts;
-
     this._setTarget(null);
-    this.princessShake = 0.3;
   }
 
   _updateArrows(dt) {
     for (const arrow of this.arrows) {
       if (!arrow.alive) continue;
+      arrow.life -= dt;
+      if (arrow.life <= 0) {
+        arrow.alive = false;
+        this._onArrowHit(arrow);
+        continue;
+      }
       const dx = arrow.targetX - arrow.x;
       const dy = arrow.targetY - arrow.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 15) {
+      if (dist < 30 || (arrow.speed * dt) >= dist) {
         arrow.alive = false;
-        if (arrow.isBoss) {
-          this.effects.bossExplode(arrow.targetX, arrow.targetY);
-          this.audio.bossKill();
-          this.effects.triggerShake(10);
-        } else {
-          this.effects.explode(arrow.targetX, arrow.targetY, '#d4a017');
-          this.audio.enemyKill();
-        }
-        this.effects.addScoreText(arrow.targetX, arrow.targetY - 20,
-          Math.floor(arrow.enemy.def.score * (1 + Math.floor(this.combo / 3) * 0.2)));
-        if (this.combo >= 3) {
-          this.effects.addComboText(arrow.targetX, arrow.targetY, this.combo);
-        }
+        this._onArrowHit(arrow);
       } else {
         const vx = (dx / dist) * arrow.speed * dt;
         const vy = (dy / dist) * arrow.speed * dt;
@@ -362,6 +357,30 @@ class Game {
       }
     }
     this.arrows = this.arrows.filter(a => a.alive);
+  }
+
+  _onArrowHit(arrow) {
+    const tx = arrow.targetX;
+    const ty = arrow.targetY;
+
+    this.kills++;
+    this.score += arrow.pts;
+
+    if (arrow.enemy) arrow.enemy.dying = false;
+
+    if (arrow.isBoss) {
+      this.effects.bossExplode(tx, ty);
+      this.audio.bossKill();
+      this.effects.triggerShake(10);
+    } else {
+      this.effects.explode(tx, ty, '#d4a017');
+      this.audio.enemyKill();
+    }
+    this.effects.addScoreText(tx, ty - 20, arrow.pts);
+    if (arrow.combo >= 3) {
+      this.effects.addComboText(tx, ty, arrow.combo);
+    }
+    this.princessShake = 0.3;
   }
 
   _victory() {
@@ -458,13 +477,13 @@ class Game {
       }
     }
 
-    this.enemies = this.enemies.filter(e => e.alive || e === this.targetEnemy);
+    this.enemies = this.enemies.filter(e => e.alive || e.dying || e === this.targetEnemy);
 
     if (this.targetEnemy && !this.targetEnemy.alive) {
       this._setTarget(null);
     }
 
-    const allDead = this.enemies.every(e => !e.alive);
+    const allDead = this.enemies.every(e => !e.alive) && this.arrows.length === 0;
     if (allDead && this.state === 'playing') {
       this.score += this.currentWave * 200;
       this.effects.triggerWaveClear(this.currentWave);
@@ -566,7 +585,7 @@ class Game {
 
   _drawEnemies(ctx) {
     for (const enemy of this.enemies) {
-      if (enemy.alive) enemy.draw(ctx);
+      if (enemy.alive || enemy.dying) enemy.draw(ctx);
     }
   }
 
