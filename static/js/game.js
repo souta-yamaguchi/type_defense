@@ -577,15 +577,41 @@ class Game {
       }
     }
 
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = "bold 14px 'Segoe UI', sans-serif";
-    ctx.textAlign = 'center';
-    const hearts = '';
+    const heartSize = 22;
+    const heartGap = 8;
     for (let i = 0; i < this.maxWallHp; i++) {
-      const hx = x - (this.maxWallHp - 1) * 8 + i * 16;
-      ctx.fillStyle = i < this.wallHp ? '#cc3333' : '#2a3a2a';
-      ctx.fillText('♥', hx, 22);
+      const hx = x;
+      const hy = 50 + i * (heartSize + heartGap);
+      const alive = i < this.wallHp;
+      this._drawHeart(ctx, hx, hy, heartSize, alive);
     }
+  }
+
+  _drawHeart(ctx, x, y, size, alive) {
+    const s = size / 2;
+    ctx.save();
+    if (alive) {
+      ctx.fillStyle = '#cc3333';
+      ctx.shadowColor = '#cc3333';
+      ctx.shadowBlur = 8;
+    } else {
+      ctx.fillStyle = '#2a3a2a';
+      ctx.shadowBlur = 0;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.4);
+    ctx.bezierCurveTo(x, y - s * 0.2, x - s, y - s * 0.6, x - s, y + s * 0.05);
+    ctx.bezierCurveTo(x - s, y + s * 0.6, x, y + s * 0.9, x, y + s * 1.1);
+    ctx.bezierCurveTo(x, y + s * 0.9, x + s, y + s * 0.6, x + s, y + s * 0.05);
+    ctx.bezierCurveTo(x + s, y - s * 0.6, x, y - s * 0.2, x, y + s * 0.4);
+    ctx.fill();
+    if (alive) {
+      ctx.fillStyle = 'rgba(255, 150, 150, 0.4)';
+      ctx.beginPath();
+      ctx.ellipse(x - s * 0.3, y + s * 0.05, s * 0.2, s * 0.25, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   _drawEnemies(ctx) {
