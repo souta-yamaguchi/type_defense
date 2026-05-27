@@ -78,7 +78,7 @@ const ENEMY_TYPES = {
     glowColor: '#64748b',
     hp: 1,
     speed: 0.85,
-    wordLength: [4, 5],
+    wordLength: [5, 6],
     size: 34,
     score: 200,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -121,7 +121,7 @@ const ENEMY_TYPES = {
     glowColor: '#dc2626',
     hp: 1,
     speed: 0.55,
-    wordLength: [5, 7],
+    wordLength: [7, 9],
     size: 40,
     score: 350,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -174,7 +174,7 @@ const ENEMY_TYPES = {
     glowColor: '#d97706',
     hp: 1,
     speed: 0.45,
-    wordLength: [6, 8],
+    wordLength: [9, 12],
     size: 50,
     score: 500,
     draw(ctx, x, y, size, hp, maxHp) {
