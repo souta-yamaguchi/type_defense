@@ -1,0 +1,612 @@
+class Enemy {
+  constructor(type, word, laneY, delay) {
+    const def = ENEMY_TYPES[type];
+    this.type = type;
+    this.def = def;
+    this.word = word;
+    this.maxHp = def.hp;
+    this.hp = def.hp;
+    this.currentWord = word;
+    this.x = 1050 + delay * 80;
+    this.y = laneY;
+    this.baseSpeed = def.speed;
+    this.size = def.size;
+    this.alive = true;
+    this.romaji = null;
+    this.targeted = false;
+    this.hitFlash = 0;
+    this.words = [word];
+  }
+
+  setWords(words) {
+    this.words = words;
+    this.currentWord = words[0];
+  }
+
+  initRomaji() {
+    this.romaji = new RomajiEngine(this.currentWord);
+  }
+
+  nextWord() {
+    this.hp--;
+    if (this.hp <= 0) return false;
+    const idx = this.maxHp - this.hp;
+    if (idx < this.words.length) {
+      this.currentWord = this.words[idx];
+    }
+    this.romaji = new RomajiEngine(this.currentWord);
+    return true;
+  }
+
+  update(dt, speedMult) {
+    this.x -= this.baseSpeed * speedMult * 60 * dt;
+    if (this.hitFlash > 0) this.hitFlash -= dt;
+  }
+
+  draw(ctx) {
+    ctx.save();
+    if (this.hitFlash > 0) {
+      ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 30) * 0.5;
+    }
+    this.def.draw(ctx, this.x, this.y, this.size, this.hp, this.maxHp);
+    ctx.restore();
+
+    ctx.save();
+    ctx.font = "bold 16px 'Segoe UI', sans-serif";
+    ctx.textAlign = 'center';
+
+    if (this.romaji) {
+      const romaji = this.romaji.displayRomaji;
+      const confirmed = this.romaji.confirmed;
+      const remaining = romaji.slice(confirmed.length);
+
+      const fullWidth = ctx.measureText(romaji).width;
+      const startX = this.x - fullWidth / 2;
+
+      ctx.fillStyle = '#1a1a2e';
+      ctx.globalAlpha = 0.7;
+      const pad = 4;
+      ctx.fillRect(this.x - fullWidth / 2 - pad, this.y + this.size * 0.4 - 2, fullWidth + pad * 2, 22);
+      ctx.globalAlpha = 1;
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#4ade80';
+      ctx.fillText(confirmed, startX, this.y + this.size * 0.4 + 14);
+
+      const confWidth = ctx.measureText(confirmed).width;
+      ctx.fillStyle = this.targeted ? '#e2e8f0' : '#64748b';
+      ctx.fillText(remaining, startX + confWidth, this.y + this.size * 0.4 + 14);
+    }
+
+    ctx.font = "bold 14px 'Segoe UI', sans-serif";
+    ctx.textAlign = 'center';
+    ctx.fillStyle = this.targeted ? '#fbbf24' : '#e2e8f0';
+    ctx.shadowColor = this.targeted ? '#fbbf24' : 'transparent';
+    ctx.shadowBlur = this.targeted ? 8 : 0;
+    ctx.fillText(this.currentWord, this.x, this.y - this.size * 0.5 - 8);
+    ctx.restore();
+  }
+
+  containsPoint(px, py) {
+    const dx = px - this.x;
+    const dy = py - this.y;
+    return Math.sqrt(dx * dx + dy * dy) < this.size * 0.8;
+  }
+}
+
+class Game {
+  constructor(canvas, difficulty, words, onGameEnd) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.difficulty = difficulty;
+    this.allWords = words;
+    this.onGameEnd = onGameEnd;
+    this.config = WAVE_CONFIGS[difficulty];
+
+    this.effects = new EffectsManager();
+    this.audio = new AudioManager();
+
+    this.enemies = [];
+    this.targetEnemy = null;
+    this.score = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.totalCorrect = 0;
+    this.totalMiss = 0;
+    this.kills = 0;
+    this.wallHp = this.config.wallHp;
+    this.maxWallHp = this.config.wallHp;
+    this.currentWave = 0;
+    this.totalWaves = this.config.waves;
+    this.state = 'wave_intro';
+    this.stateTimer = 0;
+    this.running = true;
+    this.lastTime = 0;
+    this.wallX = 100;
+    this.usedWords = new Set();
+
+    this._boundKeyHandler = this._onKey.bind(this);
+    this._boundClickHandler = this._onClick.bind(this);
+    document.addEventListener('keydown', this._boundKeyHandler);
+    canvas.addEventListener('click', this._boundClickHandler);
+
+    this._startWave();
+    requestAnimationFrame(this._loop.bind(this));
+  }
+
+  _getWord(minLen, maxLen) {
+    const pools = [this.difficulty, 'normal', 'easy', 'hard'];
+    for (const key of pools) {
+      const pool = this.allWords[key];
+      if (!pool) continue;
+      const filtered = pool.filter(w => {
+        const len = w.length;
+        return len >= minLen && len <= maxLen && !this.usedWords.has(w);
+      });
+      if (filtered.length > 0) {
+        const word = filtered[Math.floor(Math.random() * filtered.length)];
+        this.usedWords.add(word);
+        return word;
+      }
+    }
+    this.usedWords.clear();
+    const allPool = [...(this.allWords.easy || []), ...(this.allWords.normal || []), ...(this.allWords.hard || [])];
+    const filtered = allPool.filter(w => w.length >= minLen && w.length <= maxLen);
+    if (filtered.length > 0) {
+      return filtered[Math.floor(Math.random() * filtered.length)];
+    }
+    return 'てすと';
+  }
+
+  _startWave() {
+    this.currentWave++;
+    if (this.currentWave > this.totalWaves) {
+      this._victory();
+      return;
+    }
+
+    this.state = 'wave_intro';
+    this.stateTimer = 2.0;
+
+    const types = this.config.generate(this.currentWave);
+    const hasBoss = types.includes('boss');
+
+    if (hasBoss) {
+      this.effects.triggerWarning('WARNING');
+      this.audio.bossWarning();
+      this.stateTimer = 3.5;
+    } else {
+      this.audio.waveStart();
+    }
+
+    const laneMin = 80;
+    const laneMax = this.canvas.height - 180;
+    const laneCount = types.length;
+
+    this.pendingEnemies = types.map((type, i) => {
+      const def = ENEMY_TYPES[type];
+      const [minL, maxL] = def.wordLength;
+      const y = laneMin + ((laneMax - laneMin) / (laneCount + 1)) * (i + 1);
+      const spawnDelay = Math.max(0.4, 1.2 - this.currentWave * 0.05);
+      const enemy = new Enemy(type, this._getWord(minL, maxL), y, i * spawnDelay);
+
+      if (def.hp > 1) {
+        const words = [enemy.word];
+        for (let h = 1; h < def.hp; h++) {
+          words.push(this._getWord(minL, maxL));
+        }
+        enemy.setWords(words);
+      }
+      return enemy;
+    });
+  }
+
+  _spawnPending() {
+    for (const enemy of this.pendingEnemies) {
+      enemy.initRomaji();
+    }
+    this.enemies.push(...this.pendingEnemies);
+    this.pendingEnemies = [];
+  }
+
+  _setTarget(enemy) {
+    if (this.targetEnemy) this.targetEnemy.targeted = false;
+    this.targetEnemy = enemy;
+    if (enemy) {
+      enemy.targeted = true;
+      if (!enemy.romaji) enemy.initRomaji();
+    }
+  }
+
+  _onClick(e) {
+  }
+
+  _onKey(e) {
+    if (!this.running) return;
+    if (this.state !== 'playing') return;
+
+    const key = e.key.toLowerCase();
+    if (key.length !== 1 || key < 'a' || key > 'z') {
+      if (key !== '-' && key !== "'") return;
+    }
+
+    if (this.targetEnemy && this.targetEnemy.alive) {
+      const result = this.targetEnemy.romaji.processKey(key);
+      if (result.result === 'miss') {
+        this.totalMiss++;
+        this.combo = 0;
+        this.audio.keyMiss();
+        this.effects.triggerShake(3);
+        this.effects.triggerFlash('#ef4444');
+      } else if (result.result === 'continue' || result.result === 'segment_complete') {
+        this.totalCorrect++;
+        this.audio.keyCorrect();
+      } else if (result.result === 'word_complete') {
+        this.totalCorrect++;
+        const enemy = this.targetEnemy;
+        const hasMore = enemy.nextWord();
+        if (!hasMore) {
+          this._killEnemy(enemy);
+        } else {
+          enemy.hitFlash = 0.3;
+          this.audio.keyCorrect();
+          this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
+        }
+      }
+      return;
+    }
+
+    for (const enemy of this.enemies) {
+      if (!enemy.alive || !enemy.romaji) continue;
+      const patterns = enemy.romaji.currentPatterns;
+      let matches = false;
+      for (const p of patterns) {
+        if (p.startsWith(key)) { matches = true; break; }
+      }
+      if (matches) {
+        this._setTarget(enemy);
+        const result = enemy.romaji.processKey(key);
+        if (result.result === 'continue' || result.result === 'segment_complete') {
+          this.totalCorrect++;
+          this.audio.keyCorrect();
+        } else if (result.result === 'word_complete') {
+          this.totalCorrect++;
+          const hasMore = enemy.nextWord();
+          if (!hasMore) {
+            this._killEnemy(enemy);
+          } else {
+            enemy.hitFlash = 0.3;
+            this.audio.keyCorrect();
+            this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
+          }
+        }
+        return;
+      }
+    }
+  }
+
+  _killEnemy(enemy) {
+    enemy.alive = false;
+    this.kills++;
+    this.combo++;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+
+    const comboMult = 1 + Math.floor(this.combo / 3) * 0.2;
+    const pts = Math.floor(enemy.def.score * enemy.maxHp * comboMult);
+    this.score += pts;
+
+    this.effects.addScoreText(enemy.x, enemy.y - 20, pts);
+    if (this.combo >= 3) {
+      this.effects.addComboText(enemy.x, enemy.y, this.combo);
+    }
+
+    if (enemy.type === 'boss') {
+      this.effects.bossExplode(enemy.x, enemy.y);
+      this.audio.bossKill();
+      this.effects.triggerShake(10);
+    } else {
+      this.effects.explode(enemy.x, enemy.y, enemy.def.color);
+      this.audio.enemyKill();
+    }
+
+    this._setTarget(null);
+  }
+
+  _victory() {
+    this.state = 'victory';
+    this.running = false;
+    this.effects.triggerVictory();
+    this.audio.victory();
+    setTimeout(() => this._endGame(true), 3000);
+  }
+
+  _gameOver() {
+    this.state = 'gameover';
+    this.running = false;
+    this.audio.gameOver();
+    this.effects.triggerFlash('#ef4444');
+    this.effects.triggerShake(15);
+    setTimeout(() => this._endGame(false), 2000);
+  }
+
+  _endGame(victory) {
+    document.removeEventListener('keydown', this._boundKeyHandler);
+    this.canvas.removeEventListener('click', this._boundClickHandler);
+    this.onGameEnd({
+      victory,
+      score: this.score,
+      kills: this.kills,
+      wave: this.currentWave,
+      totalWaves: this.totalWaves,
+      combo: this.maxCombo,
+      correct: this.totalCorrect,
+      miss: this.totalMiss,
+      accuracy: this.totalCorrect + this.totalMiss > 0
+        ? this.totalCorrect / (this.totalCorrect + this.totalMiss) : 1,
+      difficulty: this.difficulty,
+      wallHp: this.wallHp
+    });
+  }
+
+  _loop(time) {
+    const dt = this.lastTime ? Math.min((time - this.lastTime) / 1000, 0.05) : 0.016;
+    this.lastTime = time;
+
+    this._update(dt);
+    this._draw();
+
+    if (this.running || this.state === 'victory' || this.state === 'gameover' || this.state === 'wave_clear' || this.state === 'wave_intro') {
+      requestAnimationFrame(this._loop.bind(this));
+    }
+  }
+
+  _update(dt) {
+    this.effects.update(dt);
+
+    if (this.state === 'wave_intro') {
+      this.stateTimer -= dt;
+      if (this.stateTimer <= 0) {
+        this.state = 'playing';
+        this._spawnPending();
+      }
+      return;
+    }
+
+    if (this.state === 'wave_clear') {
+      this.stateTimer -= dt;
+      if (this.stateTimer <= 0) {
+        this._startWave();
+      }
+      return;
+    }
+
+    if (this.state !== 'playing') return;
+
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      const waveAccel = 1 + (this.currentWave - 1) * 0.08;
+      enemy.update(dt, this.config.speedMult * waveAccel);
+      if (enemy.x <= this.wallX) {
+        enemy.alive = false;
+        this.wallHp--;
+        this.combo = 0;
+        this.effects.triggerShake(8);
+        this.effects.triggerFlash('#ef4444');
+        this.audio.wallHit();
+        if (enemy === this.targetEnemy) {
+          this.targetEnemy = null;
+        }
+        if (this.wallHp <= 0) {
+          this._gameOver();
+          return;
+        }
+      }
+    }
+
+    this.enemies = this.enemies.filter(e => e.alive || e === this.targetEnemy);
+
+    if (this.targetEnemy && !this.targetEnemy.alive) {
+      this._setTarget(null);
+    }
+
+    const allDead = this.enemies.every(e => !e.alive);
+    if (allDead && this.state === 'playing') {
+      this.score += this.currentWave * 200;
+      this.effects.triggerWaveClear(this.currentWave);
+      this.state = 'wave_clear';
+      this.stateTimer = 2.0;
+    }
+  }
+
+  _draw() {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    const shake = this.effects.getShakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+
+    ctx.fillStyle = '#0c1a0c';
+    ctx.fillRect(0, 0, w, h);
+
+    this._drawGround(ctx, w, h);
+    this._drawWall(ctx, h);
+    this._drawEnemies(ctx);
+    this._drawHUD(ctx, w);
+    this._drawInputArea(ctx, w, h);
+
+    this.effects.draw(ctx, this.canvas);
+
+    ctx.restore();
+  }
+
+  _drawGround(ctx, w, h) {
+    const grad = ctx.createLinearGradient(0, h - 120, 0, h);
+    grad.addColorStop(0, '#142014');
+    grad.addColorStop(1, '#0a140a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, h - 120, w, 120);
+
+    ctx.strokeStyle = '#1e3020';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 8]);
+    for (let y = 60; y < h - 120; y += 60) {
+      ctx.beginPath();
+      ctx.moveTo(this.wallX + 20, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  _drawWall(ctx, h) {
+    const x = this.wallX;
+    ctx.fillStyle = '#3a4a3a';
+    ctx.fillRect(x - 15, 30, 30, h - 150);
+
+    const brickH = 20;
+    const rows = Math.floor((h - 150) / brickH);
+    ctx.strokeStyle = '#1e2e1e';
+    ctx.lineWidth = 1;
+    for (let r = 0; r < rows; r++) {
+      const by = 30 + r * brickH;
+      ctx.strokeRect(x - 15, by, 30, brickH);
+      if (r % 2 === 0) {
+        ctx.beginPath();
+        ctx.moveTo(x, by);
+        ctx.lineTo(x, by + brickH);
+        ctx.stroke();
+      }
+    }
+
+    const damage = 1 - this.wallHp / this.maxWallHp;
+    if (damage > 0) {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      const cracks = Math.floor(damage * 5);
+      for (let c = 0; c < cracks; c++) {
+        const cy = 80 + c * 60;
+        ctx.beginPath();
+        ctx.moveTo(x - 5, cy);
+        ctx.lineTo(x + 3, cy + 15);
+        ctx.lineTo(x - 8, cy + 30);
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = "bold 14px 'Segoe UI', sans-serif";
+    ctx.textAlign = 'center';
+    const hearts = '';
+    for (let i = 0; i < this.maxWallHp; i++) {
+      const hx = x - (this.maxWallHp - 1) * 8 + i * 16;
+      ctx.fillStyle = i < this.wallHp ? '#cc3333' : '#2a3a2a';
+      ctx.fillText('♥', hx, 22);
+    }
+  }
+
+  _drawEnemies(ctx) {
+    for (const enemy of this.enemies) {
+      if (enemy.alive) enemy.draw(ctx);
+    }
+  }
+
+  _drawHUD(ctx, w) {
+    ctx.fillStyle = 'rgba(10, 20, 10, 0.85)';
+    ctx.fillRect(0, 0, w, 35);
+
+    ctx.font = "bold 16px 'Segoe UI', sans-serif";
+    ctx.textBaseline = 'middle';
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#d4a017';
+    ctx.fillText('TYPE DEFENSE', 15, 18);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#d4dcc4';
+    ctx.fillText(`Wave ${this.currentWave}/${this.totalWaves}`, w / 2, 18);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#d4a017';
+    ctx.fillText(`SCORE ${this.score.toLocaleString()}`, w - 15, 18);
+
+    if (this.combo >= 3) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#cc3333';
+      ctx.font = "bold 14px 'Segoe UI', sans-serif";
+      ctx.fillText(`${this.combo} COMBO`, 200, 18);
+    }
+  }
+
+  _drawInputArea(ctx, w, h) {
+    const areaY = h - 110;
+    ctx.fillStyle = 'rgba(10, 20, 10, 0.9)';
+    ctx.fillRect(0, areaY, w, 110);
+    ctx.strokeStyle = '#1e3020';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, areaY);
+    ctx.lineTo(w, areaY);
+    ctx.stroke();
+
+    if (this.targetEnemy && this.targetEnemy.alive && this.targetEnemy.romaji) {
+      const enemy = this.targetEnemy;
+      const romaji = enemy.romaji;
+
+      ctx.font = "bold 14px 'Segoe UI', sans-serif";
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#7a8a6a';
+      ctx.fillText(`TARGET: ${enemy.def.name}`, 20, areaY + 25);
+
+      if (enemy.maxHp > 1) {
+        ctx.fillStyle = '#5a6a4a';
+        ctx.fillText(`HP ${enemy.hp}/${enemy.maxHp}`, 200, areaY + 25);
+      }
+
+      ctx.font = "bold 28px 'Segoe UI', sans-serif";
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#d4dcc4';
+      ctx.fillText(enemy.currentWord, w / 2, areaY + 55);
+
+      const display = romaji.displayRomaji;
+      const confirmed = romaji.confirmed;
+      const remaining = display.slice(confirmed.length);
+
+      ctx.font = "bold 22px 'Courier New', monospace";
+      const fullW = ctx.measureText(display).width;
+      const startX = w / 2 - fullW / 2;
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#5cb85c';
+      ctx.fillText(confirmed, startX, areaY + 88);
+
+      const confW = ctx.measureText(confirmed).width;
+      ctx.fillStyle = '#3a4a3a';
+      ctx.fillText(remaining, startX + confW, areaY + 88);
+
+      ctx.fillStyle = '#5cb85c';
+      ctx.fillRect(startX + confW, areaY + 92, 2, 4);
+    } else {
+      ctx.font = "16px 'Segoe UI', sans-serif";
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#3a4a3a';
+      ctx.fillText('タイピングで敵を撃破！', w / 2, areaY + 55);
+    }
+
+    ctx.font = "12px 'Segoe UI', sans-serif";
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#5a6a4a';
+    const acc = this.totalCorrect + this.totalMiss > 0
+      ? (this.totalCorrect / (this.totalCorrect + this.totalMiss) * 100).toFixed(1) : '100.0';
+    ctx.fillText(`撃破: ${this.kills}体  正確率: ${acc}%`, w - 20, areaY + 100);
+  }
+
+  destroy() {
+    this.running = false;
+    document.removeEventListener('keydown', this._boundKeyHandler);
+    this.canvas.removeEventListener('click', this._boundClickHandler);
+  }
+}
+
+window.Game = Game;

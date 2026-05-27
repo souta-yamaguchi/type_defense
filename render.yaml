@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: type-defense
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+
+databases:
+  - name: type-defense-db
+    plan: free

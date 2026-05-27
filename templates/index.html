@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TYPE DEFENSE - タイピング×タワーディフェンス</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <div id="title-screen" class="screen">
+      <div class="title-container">
+        <h1 class="game-title">TYPE<br>DEFENSE</h1>
+        <p class="subtitle">タイピング × タワーディフェンス</p>
+        <div class="difficulty-select">
+          <button data-difficulty="easy" class="diff-btn easy">
+            <span class="diff-name">EASY</span>
+            <span class="diff-desc">5 Waves / 城壁HP 5 / 短い単語</span>
+          </button>
+          <button data-difficulty="normal" class="diff-btn normal">
+            <span class="diff-name">NORMAL</span>
+            <span class="diff-desc">5 Waves / 城壁HP 5 / 普通の単語・速い敵</span>
+          </button>
+          <button data-difficulty="hard" class="diff-btn hard">
+            <span class="diff-name">HARD</span>
+            <span class="diff-desc">5 Waves / 城壁HP 5 / 長い単語・大群・高速</span>
+          </button>
+        </div>
+        <button id="btn-ranking" class="menu-btn">ランキング</button>
+        <div class="how-to-play">
+          <h3>遊び方</h3>
+          <ul>
+            <li>敵が右から城壁に向かって進みます</li>
+            <li>倒したい敵の単語をローマ字で打つだけ！</li>
+            <li>打ち始めると自動でその敵にロック</li>
+            <li>城壁HPが0になるとゲームオーバー</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="game-screen" class="screen">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="result-screen" class="screen">
+      <div id="result-content"></div>
+    </div>
+
+    <div id="ranking-screen" class="screen">
+      <div class="ranking-container">
+        <h2 class="ranking-title">RANKING</h2>
+        <div id="ranking-tabs"></div>
+        <div id="ranking-body"></div>
+        <button id="btn-back-title" class="menu-btn">タイトルへ戻る</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/js/romaji.js"></script>
+  <script src="/static/js/enemies.js"></script>
+  <script src="/static/js/effects.js"></script>
+  <script src="/static/js/audio.js"></script>
+  <script src="/static/js/game.js"></script>
+  <script src="/static/js/ranking.js"></script>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
