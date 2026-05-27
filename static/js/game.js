@@ -268,10 +268,13 @@ class Game {
     for (const enemy of this.enemies) {
       if (!enemy.alive || !enemy.romaji) continue;
       if (enemy.x > this.canvas.width) continue;
-      const fullRomaji = enemy.romaji.displayRomaji;
-      if (fullRomaji.startsWith(buf)) {
-        candidates.push(enemy);
+      const testEngine = new RomajiEngine(enemy.currentWord);
+      let valid = true;
+      for (const ch of buf) {
+        const r = testEngine.processKey(ch);
+        if (r.result === 'miss') { valid = false; break; }
       }
+      if (valid) candidates.push(enemy);
     }
 
     if (candidates.length === 0) {
