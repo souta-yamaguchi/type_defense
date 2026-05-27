@@ -338,6 +338,10 @@ class Game {
     for (const arrow of this.arrows) {
       if (!arrow.alive) continue;
       arrow.life -= dt;
+      if (arrow.enemy && arrow.enemy.dying) {
+        arrow.targetX = arrow.enemy.x;
+        arrow.targetY = arrow.enemy.y;
+      }
       if (arrow.life <= 0) {
         arrow.alive = false;
         this._onArrowHit(arrow);
@@ -456,9 +460,10 @@ class Game {
     if (this.state !== 'playing') return;
 
     for (const enemy of this.enemies) {
-      if (!enemy.alive) continue;
+      if (!enemy.alive && !enemy.dying) continue;
       const waveAccel = 1 + (this.currentWave - 1) * 0.08;
       enemy.update(dt, this.config.speedMult * waveAccel);
+      if (enemy.dying) continue;
       if (enemy.x <= this.wallX) {
         enemy.alive = false;
         this.wallHp--;
