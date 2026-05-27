@@ -212,6 +212,7 @@ class Game {
   _setTarget(enemy) {
     if (this.targetEnemy) this.targetEnemy.targeted = false;
     this.targetEnemy = enemy;
+    this._pendingBuffer = '';
     if (enemy) {
       enemy.targeted = true;
       if (!enemy.romaji) enemy.initRomaji();
@@ -256,33 +257,48 @@ class Game {
       return;
     }
 
+    this._pendingBuffer = (this._pendingBuffer || '') + key;
+    const buf = this._pendingBuffer;
+
+    const candidates = [];
     for (const enemy of this.enemies) {
       if (!enemy.alive || !enemy.romaji) continue;
       const patterns = enemy.romaji.currentPatterns;
-      let matches = false;
       for (const p of patterns) {
-        if (p.startsWith(key)) { matches = true; break; }
-      }
-      if (matches) {
-        this._setTarget(enemy);
-        const result = enemy.romaji.processKey(key);
-        if (result.result === 'continue' || result.result === 'segment_complete') {
-          this.totalCorrect++;
-          this.audio.keyCorrect();
-        } else if (result.result === 'word_complete') {
-          this.totalCorrect++;
-          const hasMore = enemy.nextWord();
-          if (!hasMore) {
-            this._killEnemy(enemy);
-          } else {
-            enemy.hitFlash = 0.3;
-            this.audio.keyCorrect();
-            this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
-          }
+        if (p.startsWith(buf)) {
+          candidates.push(enemy);
+          break;
         }
-        return;
       }
     }
+
+    if (candidates.length === 0) {
+      this._pendingBuffer = '';
+      return;
+    }
+
+    if (candidates.length === 1) {
+      const enemy = candidates[0];
+      this._setTarget(enemy);
+      for (const ch of buf) {
+        enemy.romaji.processKey(ch);
+      }
+      this.totalCorrect += buf.length;
+      this.audio.keyCorrect();
+      if (enemy.romaji.isComplete) {
+        const hasMore = enemy.nextWord();
+        if (!hasMore) {
+          this._killEnemy(enemy);
+        } else {
+          enemy.hitFlash = 0.3;
+          this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
+        }
+      }
+      this._pendingBuffer = '';
+      return;
+    }
+
+    this.audio.keyCorrect();
   }
 
   _killEnemy(enemy) {
@@ -587,6 +603,14 @@ class Game {
 
       ctx.fillStyle = '#5cb85c';
       ctx.fillRect(startX + confW, areaY + 92, 2, 4);
+    } else if (this._pendingBuffer) {
+      ctx.font = "bold 22px 'Courier New', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#d4a017';
+      ctx.fillText(this._pendingBuffer + '_', w / 2, areaY + 55);
+      ctx.font = "14px 'Segoe UI', sans-serif";
+      ctx.fillStyle = '#5a6a4a';
+      ctx.fillText('入力中... 候補を絞り込んでいます', w / 2, areaY + 85);
     } else {
       ctx.font = "16px 'Segoe UI', sans-serif";
       ctx.textAlign = 'center';
