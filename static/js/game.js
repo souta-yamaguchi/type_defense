@@ -124,6 +124,10 @@ class Game {
     this.lastTime = 0;
     this.wallX = 100;
     this.usedWords = new Set();
+    this.arrows = [];
+    this.heroY = 280;
+    this.heroDrawAngle = 0;
+    this.princessShake = 0;
 
     this._boundKeyHandler = this._onKey.bind(this);
     this._boundClickHandler = this._onClick.bind(this);
@@ -300,6 +304,22 @@ class Game {
   }
 
   _killEnemy(enemy) {
+    const heroX = 50;
+    const dx = enemy.x - heroX;
+    const dy = enemy.y - this.heroY;
+    this.heroDrawAngle = Math.atan2(dy, dx);
+
+    this.arrows.push({
+      x: heroX,
+      y: this.heroY,
+      targetX: enemy.x,
+      targetY: enemy.y,
+      enemy: enemy,
+      speed: 800,
+      alive: true,
+      isBoss: enemy.type === 'boss'
+    });
+
     enemy.alive = false;
     this.kills++;
     this.combo++;
@@ -309,21 +329,39 @@ class Game {
     const pts = Math.floor(enemy.def.score * enemy.maxHp * comboMult);
     this.score += pts;
 
-    this.effects.addScoreText(enemy.x, enemy.y - 20, pts);
-    if (this.combo >= 3) {
-      this.effects.addComboText(enemy.x, enemy.y, this.combo);
-    }
-
-    if (enemy.type === 'boss') {
-      this.effects.bossExplode(enemy.x, enemy.y);
-      this.audio.bossKill();
-      this.effects.triggerShake(10);
-    } else {
-      this.effects.explode(enemy.x, enemy.y, enemy.def.color);
-      this.audio.enemyKill();
-    }
-
     this._setTarget(null);
+    this.princessShake = 0.3;
+  }
+
+  _updateArrows(dt) {
+    for (const arrow of this.arrows) {
+      if (!arrow.alive) continue;
+      const dx = arrow.targetX - arrow.x;
+      const dy = arrow.targetY - arrow.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 15) {
+        arrow.alive = false;
+        if (arrow.isBoss) {
+          this.effects.bossExplode(arrow.targetX, arrow.targetY);
+          this.audio.bossKill();
+          this.effects.triggerShake(10);
+        } else {
+          this.effects.explode(arrow.targetX, arrow.targetY, '#d4a017');
+          this.audio.enemyKill();
+        }
+        this.effects.addScoreText(arrow.targetX, arrow.targetY - 20,
+          Math.floor(arrow.enemy.def.score * (1 + Math.floor(this.combo / 3) * 0.2)));
+        if (this.combo >= 3) {
+          this.effects.addComboText(arrow.targetX, arrow.targetY, this.combo);
+        }
+      } else {
+        const vx = (dx / dist) * arrow.speed * dt;
+        const vy = (dy / dist) * arrow.speed * dt;
+        arrow.x += vx;
+        arrow.y += vy;
+      }
+    }
+    this.arrows = this.arrows.filter(a => a.alive);
   }
 
   _victory() {
@@ -376,6 +414,8 @@ class Game {
 
   _update(dt) {
     this.effects.update(dt);
+    this._updateArrows(dt);
+    if (this.princessShake > 0) this.princessShake -= dt;
 
     if (this.state === 'wave_intro') {
       this.stateTimer -= dt;
@@ -407,6 +447,7 @@ class Game {
         this.effects.triggerShake(8);
         this.effects.triggerFlash('#ef4444');
         this.audio.wallHit();
+        this.princessShake = 1.0;
         if (enemy === this.targetEnemy) {
           this.targetEnemy = null;
         }
@@ -446,6 +487,9 @@ class Game {
 
     this._drawGround(ctx, w, h);
     this._drawWall(ctx, h);
+    this._drawPrincess(ctx);
+    this._drawHero(ctx);
+    this._drawArrows(ctx);
     this._drawEnemies(ctx);
     this._drawHUD(ctx, w);
     this._drawInputArea(ctx, w, h);
@@ -523,6 +567,211 @@ class Game {
   _drawEnemies(ctx) {
     for (const enemy of this.enemies) {
       if (enemy.alive) enemy.draw(ctx);
+    }
+  }
+
+  _drawHero(ctx) {
+    const x = 50;
+    const y = this.heroY;
+    const angle = this.targetEnemy && this.targetEnemy.alive
+      ? Math.atan2(this.targetEnemy.y - y, this.targetEnemy.x - x)
+      : this.heroDrawAngle || 0;
+    this.heroDrawAngle = angle;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // body
+    ctx.fillStyle = '#2a6e2a';
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 12, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // head
+    ctx.fillStyle = '#f0d0a0';
+    ctx.beginPath();
+    ctx.arc(0, -18, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // hood
+    ctx.fillStyle = '#1a5a1a';
+    ctx.beginPath();
+    ctx.arc(0, -20, 11, Math.PI, Math.PI * 2);
+    ctx.fill();
+
+    // eyes
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(-3, -18, 1.5, 0, Math.PI * 2);
+    ctx.arc(3, -18, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // bow
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(15, 0, 18, -0.8, 0.8);
+    ctx.stroke();
+    // bowstring
+    ctx.strokeStyle = '#d4dcc4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(15 + 18 * Math.cos(-0.8), 18 * Math.sin(-0.8));
+    ctx.lineTo(15 + 18 * Math.cos(0.8), 18 * Math.sin(0.8));
+    ctx.stroke();
+    // arrow on bow
+    ctx.strokeStyle = '#d4a017';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(5, 0);
+    ctx.lineTo(35, 0);
+    ctx.stroke();
+    // arrowhead
+    ctx.fillStyle = '#d4a017';
+    ctx.beginPath();
+    ctx.moveTo(38, 0);
+    ctx.lineTo(32, -3);
+    ctx.lineTo(32, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  _drawPrincess(ctx) {
+    const x = 25;
+    const y = 380;
+    const shake = this.princessShake > 0 ? (Math.sin(Date.now() / 50) * 2) : 0;
+
+    ctx.save();
+    ctx.translate(x + shake, y);
+
+    // dress
+    ctx.fillStyle = '#e84393';
+    ctx.beginPath();
+    ctx.moveTo(-14, 5);
+    ctx.lineTo(14, 5);
+    ctx.lineTo(10, 28);
+    ctx.lineTo(-10, 28);
+    ctx.closePath();
+    ctx.fill();
+
+    // body
+    ctx.fillStyle = '#fd79a8';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 10, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // head
+    ctx.fillStyle = '#ffeaa7';
+    ctx.beginPath();
+    ctx.arc(0, -16, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // hair
+    ctx.fillStyle = '#fdcb6e';
+    ctx.beginPath();
+    ctx.arc(0, -18, 10, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-9, -10, 3, 12, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(9, -10, 3, 12, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // crown
+    ctx.fillStyle = '#d4a017';
+    ctx.beginPath();
+    ctx.moveTo(-6, -25);
+    ctx.lineTo(-4, -31);
+    ctx.lineTo(-1, -26);
+    ctx.lineTo(0, -33);
+    ctx.lineTo(1, -26);
+    ctx.lineTo(4, -31);
+    ctx.lineTo(6, -25);
+    ctx.closePath();
+    ctx.fill();
+
+    // eyes (scared look when shaking)
+    ctx.fillStyle = '#1a1a2e';
+    if (this.princessShake > 0) {
+      ctx.beginPath();
+      ctx.arc(-3, -16, 2.5, 0, Math.PI * 2);
+      ctx.arc(3, -16, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      // open mouth (scared)
+      ctx.beginPath();
+      ctx.arc(0, -10, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(-3, -16, 1.5, 0, Math.PI * 2);
+      ctx.arc(3, -16, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      // smile
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, -13, 3, 0.2, Math.PI - 0.2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  _drawArrows(ctx) {
+    for (const arrow of this.arrows) {
+      if (!arrow.alive) continue;
+      const dx = arrow.targetX - arrow.x;
+      const dy = arrow.targetY - arrow.y;
+      const angle = Math.atan2(dy, dx);
+
+      ctx.save();
+      ctx.translate(arrow.x, arrow.y);
+      ctx.rotate(angle);
+
+      // arrow shaft
+      ctx.strokeStyle = '#d4a017';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(12, 0);
+      ctx.stroke();
+
+      // arrowhead
+      ctx.fillStyle = '#d4a017';
+      ctx.beginPath();
+      ctx.moveTo(15, 0);
+      ctx.lineTo(9, -3);
+      ctx.lineTo(9, 3);
+      ctx.closePath();
+      ctx.fill();
+
+      // fletching
+      ctx.fillStyle = '#cc3333';
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(-16, -3);
+      ctx.lineTo(-14, 0);
+      ctx.lineTo(-16, 3);
+      ctx.closePath();
+      ctx.fill();
+
+      // trail glow
+      ctx.shadowColor = '#d4a017';
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = 'rgba(212, 160, 23, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(-25, 0);
+      ctx.stroke();
+
+      ctx.restore();
     }
   }
 
