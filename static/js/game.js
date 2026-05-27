@@ -263,12 +263,9 @@ class Game {
     const candidates = [];
     for (const enemy of this.enemies) {
       if (!enemy.alive || !enemy.romaji) continue;
-      const patterns = enemy.romaji.currentPatterns;
-      for (const p of patterns) {
-        if (p.startsWith(buf)) {
-          candidates.push(enemy);
-          break;
-        }
+      const fullRomaji = enemy.romaji.displayRomaji;
+      if (fullRomaji.startsWith(buf)) {
+        candidates.push(enemy);
       }
     }
 
