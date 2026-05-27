@@ -3,3 +3,5 @@ __pycache__/
 .env
 venv/
 verify_*.png
+playtest_*.png
+fix_*.png
