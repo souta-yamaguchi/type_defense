@@ -401,6 +401,14 @@ class Game {
   _gameOver() {
     this.state = 'gameover';
     this.running = false;
+    for (const arrow of this.arrows) {
+      if (arrow.alive) {
+        this.kills++;
+        this.score += arrow.pts;
+        if (arrow.enemy) arrow.enemy.dying = false;
+      }
+    }
+    this.arrows = [];
     this.audio.gameOver();
     this.effects.triggerFlash('#ef4444');
     this.effects.triggerShake(15);
