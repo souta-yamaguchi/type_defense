@@ -190,7 +190,9 @@ class Game {
     this.pendingEnemies = types.map((type, i) => {
       const def = ENEMY_TYPES[type];
       const [minL, maxL] = def.wordLength;
-      const y = laneMin + ((laneMax - laneMin) / (laneCount + 1)) * (i + 1);
+      const y = type === 'boss'
+        ? (laneMin + laneMax) / 2
+        : laneMin + ((laneMax - laneMin) / (laneCount + 1)) * (i + 1);
       const spawnDelay = Math.max(0.4, 1.2 - this.currentWave * 0.05);
       const enemy = new Enemy(type, this._getWord(minL, maxL), y, i * spawnDelay);
 

@@ -175,7 +175,7 @@ const ENEMY_TYPES = {
     hp: 3,
     speed: 0.55,
     wordLength: [7, 9],
-    size: 50,
+    size: 250,
     score: 500,
     draw(ctx, x, y, size, hp, maxHp) {
       const s = size;
