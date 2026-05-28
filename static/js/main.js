@@ -48,7 +48,7 @@ function showResult(r) {
       <div class="stat-row"><span>撃破数</span><span>${r.kills} 体</span></div>
       <div class="stat-row"><span>最大コンボ</span><span>${r.combo}</span></div>
       <div class="stat-row"><span>正確率</span><span>${accPct}%</span></div>
-      <div class="stat-row"><span>城壁HP</span><span>${r.wallHp} / ${r.victory ? r.wallHp : 0}</span></div>
+      <div class="stat-row"><span>城壁HP</span><span>${r.wallHp} / ${r.maxWallHp}</span></div>
     </div>
     <div class="result-ranking-form" id="ranking-form">
       <input type="text" id="player-name" maxlength="12" placeholder="名前を入力（12文字以内）" />

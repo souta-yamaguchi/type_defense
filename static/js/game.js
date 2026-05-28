@@ -463,7 +463,8 @@ class Game {
       accuracy: this.totalCorrect + this.totalMiss > 0
         ? this.totalCorrect / (this.totalCorrect + this.totalMiss) : 1,
       difficulty: this.difficulty,
-      wallHp: this.wallHp
+      wallHp: this.wallHp,
+      maxWallHp: this.maxWallHp
     });
   }
 
