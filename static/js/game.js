@@ -253,9 +253,7 @@ class Game {
         if (!hasMore) {
           this._killEnemy(enemy);
         } else {
-          enemy.hitFlash = 0.3;
-          this.audio.keyCorrect();
-          this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
+          this._shootArrowAt(enemy, false);
         }
       }
       return;
@@ -295,14 +293,39 @@ class Game {
         if (!hasMore) {
           this._killEnemy(enemy);
         } else {
-          enemy.hitFlash = 0.3;
-          this.effects.addScoreText(enemy.x, enemy.y - 30, 'HIT!');
+          this._shootArrowAt(enemy, false);
         }
       }
       this._pendingBuffer = '';
       return;
     }
 
+    this.audio.keyCorrect();
+  }
+
+  _shootArrowAt(enemy, isFatal) {
+    const heroX = 55;
+    const dx = enemy.x - heroX;
+    const dy = enemy.y - this.heroY;
+    this.heroDrawAngle = Math.atan2(dy, dx);
+
+    this.arrows.push({
+      x: heroX,
+      y: this.heroY,
+      targetX: enemy.x,
+      targetY: enemy.y,
+      enemy: enemy,
+      speed: 4000,
+      alive: true,
+      isBoss: false,
+      isFatal: false,
+      pts: 0,
+      combo: 0,
+      life: 1.0,
+      isHit: true
+    });
+
+    enemy.hitFlash = 0.3;
     this.audio.keyCorrect();
   }
 
@@ -369,6 +392,14 @@ class Game {
   _onArrowHit(arrow) {
     const tx = arrow.targetX;
     const ty = arrow.targetY;
+
+    if (arrow.isHit) {
+      this.effects.explode(tx, ty, '#d4a017', 8);
+      this.audio.keyCorrect();
+      this.effects.addScoreText(tx, ty - 20, 'HIT!');
+      if (arrow.enemy) arrow.enemy.hitFlash = 0.3;
+      return;
+    }
 
     this.kills++;
     this.score += arrow.pts;
