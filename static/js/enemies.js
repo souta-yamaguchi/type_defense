@@ -172,9 +172,9 @@ const ENEMY_TYPES = {
     name: 'ボス',
     color: '#f59e0b',
     glowColor: '#d97706',
-    hp: 1,
+    hp: 3,
     speed: 0.45,
-    wordLength: [11, 14],
+    wordLength: [5, 7],
     size: 50,
     score: 500,
     draw(ctx, x, y, size, hp, maxHp) {
