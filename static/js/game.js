@@ -472,8 +472,7 @@ class Game {
 
     for (const enemy of this.enemies) {
       if (!enemy.alive && !enemy.dying) continue;
-      const waveAccel = 1 + (this.currentWave - 1) * 0.08;
-      enemy.update(dt, this.config.speedMult * waveAccel);
+      enemy.update(dt, this.config.speedMult);
       if (enemy.dying) continue;
       if (enemy.x <= this.wallX) {
         enemy.alive = false;
