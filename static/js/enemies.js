@@ -173,7 +173,7 @@ const ENEMY_TYPES = {
     color: '#f59e0b',
     glowColor: '#d97706',
     hp: 3,
-    speed: 0.45,
+    speed: 0.55,
     wordLength: [7, 9],
     size: 50,
     score: 500,
