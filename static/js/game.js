@@ -128,10 +128,22 @@ class Game {
     const scene = this.scene;
 
     // ---- TEXTURES ----
-    const rockTex = this._makeRockTexture(512);
-    rockTex.repeat.set(4, 2);
-    const floorTex = this._makeFloorTexture(512);
-    floorTex.repeat.set(6, 12);
+    const floorPair = this._makeFloorTexturePair(512);
+    floorPair.map.repeat.set(6, 12);
+    floorPair.normalMap.repeat.set(6, 12);
+    floorPair.normalMap.wrapS = floorPair.normalMap.wrapT = THREE.RepeatWrapping;
+
+    const ceilPair = this._makeRockTexturePair(512);
+    ceilPair.map.repeat.set(4, 2);
+    ceilPair.normalMap.repeat.set(4, 2);
+
+    const wallPairL = this._makeRockTexturePair(512);
+    wallPairL.map.repeat.set(6, 1);
+    wallPairL.normalMap.repeat.set(6, 1);
+
+    const wallPairR = this._makeRockTexturePair(512);
+    wallPairR.map.repeat.set(6, 1);
+    wallPairR.normalMap.repeat.set(6, 1);
 
     // ---- TUNNEL GEOMETRY ----
     const tunnelLen = 60;
@@ -139,9 +151,11 @@ class Game {
     const tunnelH = 5;
 
     // floor
-    const floorGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen);
+    const floorGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen, 32, 64);
     const floorMat = new THREE.MeshStandardMaterial({
-      map: floorTex,
+      map: floorPair.map,
+      normalMap: floorPair.normalMap,
+      normalScale: new THREE.Vector2(2.2, 2.2),
       color: 0x6a4a2a,
       roughness: 0.95,
       metalness: 0.05
@@ -152,9 +166,11 @@ class Game {
     scene.add(floor);
 
     // ceiling
-    const ceilGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen);
+    const ceilGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen, 16, 32);
     const ceilMat = new THREE.MeshStandardMaterial({
-      map: rockTex,
+      map: ceilPair.map,
+      normalMap: ceilPair.normalMap,
+      normalScale: new THREE.Vector2(1.8, 1.8),
       color: 0x2a1a10,
       roughness: 1,
       metalness: 0
@@ -165,22 +181,28 @@ class Game {
     scene.add(ceil);
 
     // walls
-    const wallGeo = new THREE.PlaneGeometry(tunnelLen, tunnelH);
+    const wallGeo = new THREE.PlaneGeometry(tunnelLen, tunnelH, 64, 8);
     const wallMatL = new THREE.MeshStandardMaterial({
-      map: this._makeRockTexture(512, 0.7),
+      map: wallPairL.map,
+      normalMap: wallPairL.normalMap,
+      normalScale: new THREE.Vector2(2.5, 2.5),
       color: 0x5a3a22,
-      roughness: 1,
-      metalness: 0
+      roughness: 0.92,
+      metalness: 0.02
     });
-    wallMatL.map.repeat.set(6, 1);
     const leftWall = new THREE.Mesh(wallGeo, wallMatL);
     leftWall.rotation.y = Math.PI / 2;
     leftWall.position.set(-tunnelW / 2, tunnelH / 2, -tunnelLen / 2 + 5);
     scene.add(leftWall);
 
-    const wallMatR = wallMatL.clone();
-    wallMatR.map = this._makeRockTexture(512, 0.6);
-    wallMatR.map.repeat.set(6, 1);
+    const wallMatR = new THREE.MeshStandardMaterial({
+      map: wallPairR.map,
+      normalMap: wallPairR.normalMap,
+      normalScale: new THREE.Vector2(2.5, 2.5),
+      color: 0x5a3a22,
+      roughness: 0.92,
+      metalness: 0.02
+    });
     const rightWall = new THREE.Mesh(wallGeo, wallMatR);
     rightWall.rotation.y = -Math.PI / 2;
     rightWall.position.set(tunnelW / 2, tunnelH / 2, -tunnelLen / 2 + 5);
@@ -249,6 +271,144 @@ class Game {
     scene.add(this.enemyGroup);
     this.arrowGroup = new THREE.Group();
     scene.add(this.arrowGroup);
+
+    // ---- EMBER PARTICLES ----
+    this.embers = [];
+    this.emberGroup = new THREE.Group();
+    scene.add(this.emberGroup);
+    if (!this._emberTex) this._emberTex = this._makeEmberSprite();
+
+    // ---- DUST MOTES (floating dust catching light) ----
+    this._spawnDustField();
+  }
+
+  _makeEmberSprite() {
+    const size = 32;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255, 230, 150, 1)');
+    g.addColorStop(0.3, 'rgba(255, 150, 40, 0.95)');
+    g.addColorStop(0.7, 'rgba(220, 80, 20, 0.5)');
+    g.addColorStop(1, 'rgba(120, 30, 0, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+
+  _spawnEmber(torch) {
+    const mat = new THREE.SpriteMaterial({
+      map: this._emberTex,
+      color: 0xffb050,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const s = new THREE.Sprite(mat);
+    s.scale.set(0.06, 0.06, 1);
+    const lx = -torch.side * 0.5;
+    s.position.set(
+      torch.group.position.x + lx + (Math.random() - 0.5) * 0.05,
+      torch.group.position.y + 0.5,
+      torch.group.position.z + (Math.random() - 0.5) * 0.05
+    );
+    this.emberGroup.add(s);
+    this.embers.push({
+      sprite: s,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: 0.6 + Math.random() * 0.4,
+      vz: (Math.random() - 0.5) * 0.4,
+      life: 0,
+      maxLife: 1.2 + Math.random() * 1.0
+    });
+  }
+
+  _updateEmbers(dt) {
+    // spawn new embers from torches occasionally
+    for (const t of this.torches) {
+      if (Math.random() < 0.18) this._spawnEmber(t);
+    }
+    // update existing
+    const remaining = [];
+    for (const em of this.embers) {
+      em.life += dt;
+      if (em.life >= em.maxLife) {
+        this.emberGroup.remove(em.sprite);
+        em.sprite.material.dispose();
+        continue;
+      }
+      em.sprite.position.x += em.vx * dt;
+      em.sprite.position.y += em.vy * dt;
+      em.sprite.position.z += em.vz * dt;
+      em.vy += dt * 0.3; // slight acceleration upward (heat rises)
+      em.vx *= 0.96;
+      em.vz *= 0.96;
+      const t = em.life / em.maxLife;
+      em.sprite.material.opacity = 0.95 * (1 - t);
+      em.sprite.scale.setScalar(0.06 + t * 0.04);
+      remaining.push(em);
+    }
+    this.embers = remaining;
+  }
+
+  _spawnDustField() {
+    // floating dust motes throughout the tunnel
+    if (!this._dustTex) {
+      const size = 16;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      g.addColorStop(0, 'rgba(255, 220, 180, 0.9)');
+      g.addColorStop(0.5, 'rgba(255, 200, 130, 0.3)');
+      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+      this._dustTex = new THREE.CanvasTexture(c);
+    }
+    this.dustMotes = [];
+    const dustGroup = new THREE.Group();
+    this.scene.add(dustGroup);
+    this.dustGroup = dustGroup;
+    for (let i = 0; i < 60; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: this._dustTex,
+        color: 0xfff0d0,
+        transparent: true,
+        opacity: 0.25 + Math.random() * 0.2,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const s = new THREE.Sprite(mat);
+      s.scale.set(0.04, 0.04, 1);
+      s.position.set(
+        (Math.random() - 0.5) * 7,
+        0.5 + Math.random() * 4,
+        -2 - Math.random() * 50
+      );
+      dustGroup.add(s);
+      this.dustMotes.push({
+        sprite: s,
+        vy: 0.04 + Math.random() * 0.08,
+        vx: (Math.random() - 0.5) * 0.03,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  _updateDust(dt) {
+    const t = Date.now() / 1000;
+    for (const m of this.dustMotes) {
+      m.sprite.position.y += m.vy * dt;
+      m.sprite.position.x += m.vx * dt + Math.sin(t * 0.5 + m.phase) * dt * 0.02;
+      if (m.sprite.position.y > 4.8) {
+        m.sprite.position.y = 0.3;
+        m.sprite.position.x = (Math.random() - 0.5) * 7;
+        m.sprite.position.z = -2 - Math.random() * 50;
+      }
+    }
   }
 
   _makeFlameSprite() {
@@ -357,13 +517,51 @@ class Game {
     }
   }
 
-  _makeRockTexture(size = 256, variant = 0) {
+  _makeNormalMap(heightCanvas, strength = 2.0) {
+    const size = heightCanvas.width;
+    const srcCtx = heightCanvas.getContext('2d');
+    const imgData = srcCtx.getImageData(0, 0, size, size);
+    const h = imgData.data;
+    const out = document.createElement('canvas');
+    out.width = out.height = size;
+    const outCtx = out.getContext('2d');
+    const outImg = outCtx.createImageData(size, size);
+    const getH = (x, y) => {
+      x = ((x % size) + size) % size;
+      y = ((y % size) + size) % size;
+      return h[(y * size + x) * 4] / 255;
+    };
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const hL = getH(x - 1, y);
+        const hR = getH(x + 1, y);
+        const hU = getH(x, y - 1);
+        const hD = getH(x, y + 1);
+        const dx = (hR - hL) * strength;
+        const dy = (hD - hU) * strength;
+        const nx = -dx;
+        const ny = -dy;
+        const nz = 1.0;
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        const i = (y * size + x) * 4;
+        outImg.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
+        outImg.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+        outImg.data[i + 2] = ((nz / len) * 0.5 + 0.5) * 255;
+        outImg.data[i + 3] = 255;
+      }
+    }
+    outCtx.putImageData(outImg, 0, 0);
+    const tex = new THREE.CanvasTexture(out);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  _makeRockCanvas(size = 256) {
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#2c1d10';
     ctx.fillRect(0, 0, size, size);
-    // noise blobs
     for (let i = 0; i < 1600; i++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
@@ -377,7 +575,6 @@ class Game {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    // cracks
     ctx.strokeStyle = '#080402';
     ctx.lineWidth = 1.2;
     for (let i = 0; i < 30; i++) {
@@ -393,7 +590,6 @@ class Game {
       }
       ctx.stroke();
     }
-    // larger boulders
     for (let i = 0; i < 6; i++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
@@ -407,19 +603,42 @@ class Game {
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
+    return c;
+  }
+
+  _makeRockTexture(size = 256, variant = 0) {
+    const c = this._makeRockCanvas(size);
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
-  _makeFloorTexture(size = 512) {
+  _makeRockTexturePair(size = 256) {
+    // returns color + matching normal map
+    const c = this._makeRockCanvas(size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const normal = this._makeNormalMap(c, 3.0);
+    return { map: tex, normalMap: normal };
+  }
+
+  _makeFloorTexturePair(size = 512) {
+    const c = this._makeFloorCanvas(size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const normal = this._makeNormalMap(c, 4.0);
+    return { map: tex, normalMap: normal };
+  }
+
+  _makeFloorCanvas(size = 512) {
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#3a2818';
     ctx.fillRect(0, 0, size, size);
-    // cobblestones
     const stoneSize = 64;
     for (let y = 0; y < size; y += stoneSize) {
       const off = (y / stoneSize) % 2 === 0 ? 0 : stoneSize / 2;
@@ -444,13 +663,17 @@ class Game {
         ctx.strokeRect(sx, sy, sw, sh);
       }
     }
-    // dirt overlay
     for (let i = 0; i < 600; i++) {
       ctx.fillStyle = `rgba(${20 + Math.random() * 60},${10 + Math.random() * 30},0,${0.1 + Math.random() * 0.3})`;
       ctx.beginPath();
       ctx.arc(Math.random() * size, Math.random() * size, 1 + Math.random() * 4, 0, Math.PI * 2);
       ctx.fill();
     }
+    return c;
+  }
+
+  _makeFloorTexture(size = 512) {
+    const c = this._makeFloorCanvas(size);
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -1153,6 +1376,8 @@ class Game {
     if (this.cameraShake > 0) this.cameraShake = Math.max(0, this.cameraShake - dt * 4);
 
     this._animateTorches(dt);
+    this._updateEmbers(dt);
+    this._updateDust(dt);
     this._updateEnemyMeshes(dt);
 
     // subtle breathing camera
