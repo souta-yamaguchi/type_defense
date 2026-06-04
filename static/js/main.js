@@ -134,7 +134,15 @@ function formatDate(iso) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+function waitForThree() {
+  return new Promise(resolve => {
+    if (window.THREE && window.EffectComposer) return resolve();
+    window.addEventListener('threeReady', () => resolve(), { once: true });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  await waitForThree();
   await loadWords();
   showScreen('title-screen');
 

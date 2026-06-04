@@ -62,7 +62,27 @@
 
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+    window.THREE = THREE;
+    window.EffectComposer = EffectComposer;
+    window.RenderPass = RenderPass;
+    window.UnrealBloomPass = UnrealBloomPass;
+    window.ShaderPass = ShaderPass;
+    window.dispatchEvent(new CustomEvent('threeReady'));
+  </script>
   <script src="/static/js/romaji.js"></script>
   <script src="/static/js/enemies.js"></script>
   <script src="/static/js/effects.js"></script>

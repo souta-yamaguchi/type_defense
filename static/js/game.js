@@ -113,7 +113,7 @@ class Game {
     this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05030a);
@@ -122,6 +122,15 @@ class Game {
     this.camera = new THREE.PerspectiveCamera(62, 1000 / 600, 0.1, 100);
     this.camera.position.set(0, 1.5, 1.2);
     this.camera.lookAt(0, 1.3, -5);
+
+    // postprocessing — bloom for glow on torches and emissive enemies
+    if (window.EffectComposer && window.RenderPass && window.UnrealBloomPass) {
+      this.composer = new window.EffectComposer(this.renderer);
+      this.composer.setSize(1000, 600);
+      this.composer.addPass(new window.RenderPass(this.scene, this.camera));
+      const bloom = new window.UnrealBloomPass(new THREE.Vector2(1000, 600), 0.85, 0.35, 0.25);
+      this.composer.addPass(bloom);
+    }
   }
 
   _buildScene() {
@@ -274,6 +283,10 @@ class Game {
     scene.add(this.enemyGroup);
     this.arrowGroup = new THREE.Group();
     scene.add(this.arrowGroup);
+
+    // ---- 3D BOW ATTACHED TO CAMERA ----
+    this._buildBow3D();
+    scene.add(this.camera);
 
     // ---- EMBER PARTICLES ----
     this.embers = [];
@@ -553,6 +566,183 @@ class Game {
     g.position.set(x, 0, z);
     g.rotation.y = Math.random() * Math.PI;
     return g;
+  }
+
+  _buildBow3D() {
+    // Construct a recurve bow as a curved tube, attached to the camera so it
+    // moves with the view. Positioned front-right, slightly low — typical FPV.
+    const bow = new THREE.Group();
+
+    // bow wood: a 3D curve traced as a TubeGeometry
+    const bowCurvePts = [];
+    const N = 20;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      // parametric arch from top to bottom, bulging out (+X) at the middle
+      const ang = (t - 0.5) * Math.PI * 0.6; // -54° to +54°
+      const r = 0.42;
+      bowCurvePts.push(new THREE.Vector3(
+        Math.cos(ang) * r * 0.3,  // bulge outward (positive X = right)
+        -Math.sin(ang) * r * 1.6,
+        0
+      ));
+    }
+    const bowCurve = new THREE.CatmullRomCurve3(bowCurvePts);
+    const bowGeo = new THREE.TubeGeometry(bowCurve, 64, 0.018, 8, false);
+    const woodMat = new THREE.MeshStandardMaterial({
+      color: 0x6a3a14,
+      roughness: 0.55,
+      metalness: 0.05
+    });
+    const bowMesh = new THREE.Mesh(bowGeo, woodMat);
+    bow.add(bowMesh);
+
+    // wood grain highlight strip
+    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.008, 6, false);
+    const grainMat = new THREE.MeshStandardMaterial({
+      color: 0x8a4f1f, roughness: 0.7, emissive: 0x3a1f08, emissiveIntensity: 0.2
+    });
+    const grain = new THREE.Mesh(grainGeo, grainMat);
+    grain.position.x = 0.015;
+    bow.add(grain);
+
+    // horn tips (carved at both ends)
+    const tipMat = new THREE.MeshStandardMaterial({ color: 0x1a0e04, roughness: 0.4, metalness: 0.2 });
+    const topTipPos = bowCurvePts[0];
+    const botTipPos = bowCurvePts[N];
+    const topTip = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 10), tipMat);
+    topTip.position.copy(topTipPos);
+    bow.add(topTip);
+    const botTip = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 10), tipMat);
+    botTip.position.copy(botTipPos);
+    bow.add(botTip);
+
+    // bowstring — line from top tip to bottom tip, pulled toward hand when nocked
+    const stringMat = new THREE.LineBasicMaterial({ color: 0xf0e0b0, linewidth: 1 });
+    const stringGeom = new THREE.BufferGeometry();
+    const stringPos = new Float32Array(9); // 3 points * 3 coords
+    stringGeom.setAttribute('position', new THREE.BufferAttribute(stringPos, 3));
+    const stringLine = new THREE.Line(stringGeom, stringMat);
+    bow.add(stringLine);
+    this._bowString = { geom: stringGeom, top: topTipPos.clone(), bot: botTipPos.clone(), positions: stringPos };
+
+    // leather grip wrap at center (where hand holds)
+    const gripGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.13, 12);
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x150806, roughness: 0.95 });
+    const grip = new THREE.Mesh(gripGeo, gripMat);
+    grip.position.set(0.015, 0, 0);
+    // align grip with bow tangent (vertical here, since middle of curve is horizontal direction)
+    bow.add(grip);
+    // leather wrap stitches
+    const stitchMat = new THREE.MeshStandardMaterial({ color: 0x3a1f0a, roughness: 1 });
+    for (let i = 0; i < 8; i++) {
+      const stitch = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.003, 4, 12), stitchMat);
+      stitch.position.set(0.015, -0.055 + i * 0.015, 0);
+      stitch.rotation.x = Math.PI / 2;
+      bow.add(stitch);
+    }
+
+    // ----- HAND holding the grip -----
+    const handMat = new THREE.MeshStandardMaterial({
+      color: 0xc89878, roughness: 0.7, metalness: 0
+    });
+    const palmGeo = new THREE.SphereGeometry(0.06, 16, 14);
+    const palm = new THREE.Mesh(palmGeo, handMat);
+    palm.scale.set(1.0, 1.3, 0.7);
+    palm.position.set(0.05, 0, 0);
+    bow.add(palm);
+    // fingers wrapped on the far side of grip
+    for (let i = 0; i < 4; i++) {
+      const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.04, 4, 8), handMat);
+      finger.position.set(-0.018, -0.04 + i * 0.025, 0.005);
+      finger.rotation.z = 0.4;
+      bow.add(finger);
+    }
+    // thumb on the near side wrapping over
+    const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.04, 4, 8), handMat);
+    thumb.position.set(0.045, -0.045, 0.02);
+    thumb.rotation.z = -0.3;
+    thumb.rotation.x = -0.3;
+    bow.add(thumb);
+    // wrist / cuff
+    const cuffMat = new THREE.MeshStandardMaterial({ color: 0x3a2010, roughness: 1 });
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.075, 0.05, 12), cuffMat);
+    cuff.position.set(0.08, -0.08, 0);
+    cuff.rotation.z = 0.3;
+    bow.add(cuff);
+    // forearm (extends back toward camera, partially off-screen)
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x1f3a18, roughness: 0.9 });
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.5, 12), armMat);
+    arm.position.set(0.12, -0.2, 0.15);
+    arm.rotation.z = 0.6;
+    arm.rotation.x = -0.6;
+    bow.add(arm);
+
+    // ----- NOCKED ARROW (visible when not firing) -----
+    const arrowGroup = new THREE.Group();
+    const shaftMat = new THREE.MeshStandardMaterial({
+      color: 0xd4a017, emissive: 0x402010, emissiveIntensity: 0.4, roughness: 0.5
+    });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.6, 8), shaftMat);
+    shaft.rotation.x = Math.PI / 2; // align along Z
+    arrowGroup.add(shaft);
+    const arrowHead = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.04, 8),
+      new THREE.MeshStandardMaterial({ color: 0xd0d0d0, metalness: 0.85, roughness: 0.2 }));
+    arrowHead.rotation.x = -Math.PI / 2;
+    arrowHead.position.z = -0.32;
+    arrowGroup.add(arrowHead);
+    // fletching (3 fins)
+    const fletchMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.8 });
+    for (let i = 0; i < 3; i++) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.005, 0.08), fletchMat);
+      fin.position.z = 0.26;
+      fin.rotation.z = (i / 3) * Math.PI * 2;
+      arrowGroup.add(fin);
+    }
+    // position arrow on bow, pointing forward (-Z away from camera)
+    arrowGroup.position.set(0, 0, 0);
+    bow.add(arrowGroup);
+    this._bowArrowGroup = arrowGroup;
+
+    // Position the whole bow in front-right of the camera (camera looks toward -Z)
+    bow.position.set(0.32, -0.22, -0.55);
+    bow.rotation.y = -0.15;
+    bow.rotation.z = -0.05;
+    // Add bow as child of camera so it moves with it
+    this.camera.add(bow);
+    this.bow3D = bow;
+    this._bowBasePos = bow.position.clone();
+  }
+
+  _updateBow3D(dt) {
+    if (!this.bow3D) return;
+    const recoil = this.bowRecoil;
+    // pull bow back (recoil): bow shifts toward camera + slightly down
+    const base = this._bowBasePos;
+    this.bow3D.position.set(
+      base.x + recoil * 0.02,
+      base.y - recoil * 0.04,
+      base.z + recoil * 0.06
+    );
+    this.bow3D.rotation.z = -0.05 - recoil * 0.05;
+
+    // arrow visible only when not recoiling
+    if (this._bowArrowGroup) {
+      this._bowArrowGroup.visible = recoil < 0.4;
+    }
+
+    // bowstring: 3 points (top tip → middle → bottom tip), middle pulled toward hand when not recoiled
+    const pos = this._bowString.positions;
+    const top = this._bowString.top;
+    const bot = this._bowString.bot;
+    const drawback = 1 - recoil;
+    // middle pulled back (positive X = away from bow's convex side)
+    const midX = (top.x + bot.x) / 2 - drawback * 0.06;
+    const midY = (top.y + bot.y) / 2;
+    pos[0] = top.x; pos[1] = top.y; pos[2] = top.z;
+    pos[3] = midX;  pos[4] = midY;  pos[5] = 0;
+    pos[6] = bot.x; pos[7] = bot.y; pos[8] = bot.z;
+    this._bowString.geom.attributes.position.needsUpdate = true;
   }
 
   _makeFlameSprite() {
@@ -1353,7 +1543,11 @@ class Game {
   }
 
   _arrowStartWorld() {
-    // bow grip approximate world position (just below + right of camera)
+    if (this.bow3D) {
+      const v = new THREE.Vector3();
+      this.bow3D.getWorldPosition(v);
+      return v;
+    }
     return new THREE.Vector3(
       this.camera.position.x + 0.4,
       this.camera.position.y - 0.5,
@@ -1580,6 +1774,7 @@ class Game {
     this._updateEmbers(dt);
     this._updateDust(dt);
     this._updateEnemyMeshes(dt);
+    this._updateBow3D(dt);
     // altar orb pulse
     if (this._altarOrb && this._altarLight) {
       const t = Date.now() / 1000;
@@ -1660,7 +1855,11 @@ class Game {
       this.camera.position.x = 0;
       this.camera.rotation.z = 0;
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
     this._drawOverlay();
   }
 
@@ -1686,7 +1885,6 @@ class Game {
       this._drawEnemyLabel(ctx, enemy, sp);
     }
 
-    this._drawBow(ctx);
     this._drawHUD(ctx, w);
     this._drawInputArea(ctx, w, h);
     this._drawVignette(ctx, w, h);
