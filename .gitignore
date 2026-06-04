@@ -5,3 +5,11 @@ venv/
 verify_*.png
 playtest_*.png
 fix_*.png
+v3d_*.png
+v3df_*.png
+lc_*.png
+go_*.png
+mp_*.png
+intro_*.png
+shoot_*.png
+verify_*.py
