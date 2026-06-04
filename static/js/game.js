@@ -1784,6 +1784,7 @@ class Game {
   _victory() {
     this.state = 'victory';
     this.running = false;
+    this.currentWave = this.totalWaves; // cap displayed wave (was N+1 because incrementor)
     this.effects.triggerVictory();
     this.audio.victory();
     setTimeout(() => this._endGame(true), 3000);

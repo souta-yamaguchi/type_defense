@@ -139,6 +139,9 @@ class EffectsManager {
   triggerWarning(text = 'WARNING') {
     this.warningAlpha = 3.0;
     this.warningText = text;
+    // suppress any lingering wave-clear text so they don't overlap
+    this.waveClearAlpha = 0;
+    this.waveClearText = '';
   }
 
   triggerWaveClear(waveNum) {
