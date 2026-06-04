@@ -102,6 +102,14 @@ class Game {
     document.addEventListener('keydown', this._boundKeyHandler);
     canvas3d.addEventListener('click', this._boundClickHandler);
 
+    // BGM starts on first user interaction (AudioContext requires gesture)
+    this._bgmStarted = false;
+    this._startBgmOnFirstKey = () => {
+      if (this._bgmStarted) return;
+      this._bgmStarted = true;
+      this.audio.startBGM();
+    };
+
     this._startWave();
     requestAnimationFrame(this._loop.bind(this));
   }
@@ -1555,6 +1563,7 @@ class Game {
 
   _onKey(e) {
     if (!this.running) return;
+    if (this._startBgmOnFirstKey) this._startBgmOnFirstKey();
     if (this.state !== 'playing') return;
     const key = e.key.toLowerCase();
     if (key.length !== 1 || key < 'a' || key > 'z') {
@@ -1810,6 +1819,7 @@ class Game {
   _endGame(victory) {
     document.removeEventListener('keydown', this._boundKeyHandler);
     this.canvas3d.removeEventListener('click', this._boundClickHandler);
+    this.audio.stopBGM();
     this.onGameEnd({
       victory,
       score: this.score,
@@ -2334,6 +2344,7 @@ class Game {
     this.running = false;
     document.removeEventListener('keydown', this._boundKeyHandler);
     this.canvas3d.removeEventListener('click', this._boundClickHandler);
+    if (this.audio) this.audio.stopBGM();
     if (this.renderer) {
       this.renderer.dispose();
     }

@@ -85,6 +85,77 @@ class AudioManager {
     this.enabled = !this.enabled;
     return this.enabled;
   }
+
+  // ---- BGM: ambient dungeon drone ----
+  startBGM() {
+    if (!this.enabled || this.bgmPlaying) return;
+    this._ensure();
+    this.bgmPlaying = true;
+    const now = this.ctx.currentTime;
+    const masterGain = this.ctx.createGain();
+    masterGain.gain.setValueAtTime(0, now);
+    masterGain.gain.linearRampToValueAtTime(0.045, now + 2.0); // fade in
+    masterGain.connect(this.ctx.destination);
+    this.bgmMaster = masterGain;
+    this.bgmOscs = [];
+
+    // Low fundamental drone (A1)
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.value = 55;
+    osc1.connect(masterGain);
+    osc1.start();
+    this.bgmOscs.push(osc1);
+
+    // Detuned octave for depth
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.value = 110;
+    osc2.detune.value = -8;
+    const g2 = this.ctx.createGain();
+    g2.gain.value = 0.55;
+    osc2.connect(g2).connect(masterGain);
+    osc2.start();
+    this.bgmOscs.push(osc2);
+
+    // Pad (fifth above)
+    const osc3 = this.ctx.createOscillator();
+    osc3.type = 'sine';
+    osc3.frequency.value = 165; // E3
+    osc3.detune.value = 10;
+    const g3 = this.ctx.createGain();
+    g3.gain.value = 0.3;
+    osc3.connect(g3).connect(masterGain);
+    osc3.start();
+    this.bgmOscs.push(osc3);
+
+    // Slow LFO on fundamental for breathing motion
+    const lfo = this.ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.08; // very slow
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 1.5;
+    lfo.connect(lfoGain).connect(osc1.frequency);
+    lfo.start();
+    this.bgmOscs.push(lfo);
+  }
+
+  stopBGM() {
+    if (!this.bgmPlaying) return;
+    this.bgmPlaying = false;
+    const now = this.ctx.currentTime;
+    try {
+      this.bgmMaster.gain.cancelScheduledValues(now);
+      this.bgmMaster.gain.setValueAtTime(this.bgmMaster.gain.value, now);
+      this.bgmMaster.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+    } catch (e) {}
+    setTimeout(() => {
+      for (const o of this.bgmOscs) {
+        try { o.stop(); } catch (e) {}
+      }
+      this.bgmOscs = [];
+    }, 1300);
+  }
 }
 
 window.AudioManager = AudioManager;
