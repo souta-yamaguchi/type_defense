@@ -497,46 +497,55 @@ class Game {
       g.userData.scale = 1.0;
     } else if (t === 'bat') {
       const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0x6a30a0, emissive: 0x301050, emissiveIntensity: 0.5,
+        color: 0x8a40c0, emissive: 0x401860, emissiveIntensity: 0.7,
         roughness: 0.5, metalness: 0
       });
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), bodyMat);
-      body.scale.set(0.8, 1.1, 1.0);
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 14), bodyMat);
+      body.scale.set(0.9, 1.1, 1.1);
       g.add(body);
       // wings
       const wingMat = new THREE.MeshStandardMaterial({
-        color: 0x4a1f80, side: THREE.DoubleSide, roughness: 0.7
+        color: 0x5a2090, side: THREE.DoubleSide, roughness: 0.7,
+        emissive: 0x20104a, emissiveIntensity: 0.3
       });
       const wingShape = new THREE.Shape();
       wingShape.moveTo(0, 0);
-      wingShape.quadraticCurveTo(0.5, 0.2, 0.8, -0.1);
-      wingShape.lineTo(0.6, -0.2);
-      wingShape.quadraticCurveTo(0.3, -0.05, 0, -0.15);
+      wingShape.quadraticCurveTo(0.7, 0.3, 1.1, -0.15);
+      wingShape.quadraticCurveTo(0.9, -0.05, 0.85, -0.3);
+      wingShape.quadraticCurveTo(0.5, -0.1, 0, -0.2);
       wingShape.lineTo(0, 0);
       const wingGeo = new THREE.ShapeGeometry(wingShape);
       const wingL = new THREE.Mesh(wingGeo, wingMat);
-      wingL.position.x = -0.18;
+      wingL.position.x = -0.25;
       wingL.scale.x = -1;
       g.add(wingL);
       const wingR = new THREE.Mesh(wingGeo, wingMat);
-      wingR.position.x = 0.18;
+      wingR.position.x = 0.25;
       g.add(wingR);
       g.userData.wings = [wingL, wingR];
-      // eyes
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+      // eyes (large glowing)
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
       for (const side of [-1, 1]) {
-        const e = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), eyeMat);
-        e.position.set(side * 0.08, 0.05, 0.18);
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), eyeMat);
+        e.position.set(side * 0.1, 0.08, 0.26);
         g.add(e);
       }
+      // fangs
+      const fangMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      for (const side of [-1, 1]) {
+        const fang = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 4), fangMat);
+        fang.position.set(side * 0.05, -0.05, 0.28);
+        fang.rotation.x = Math.PI;
+        g.add(fang);
+      }
       // ears
-      const earGeo = new THREE.ConeGeometry(0.06, 0.14, 6);
+      const earGeo = new THREE.ConeGeometry(0.08, 0.22, 6);
       for (const side of [-1, 1]) {
         const ear = new THREE.Mesh(earGeo, bodyMat);
-        ear.position.set(side * 0.1, 0.22, 0);
+        ear.position.set(side * 0.13, 0.32, -0.02);
         g.add(ear);
       }
-      g.userData.scale = 0.95;
+      g.userData.scale = 1.05;
     } else if (t === 'wolf') {
       const furMat = new THREE.MeshStandardMaterial({
         color: 0x7a8a98, emissive: 0x202830, emissiveIntensity: 0.35,
@@ -633,19 +642,39 @@ class Game {
       body.scale.set(1.1, 1.0, 1.1);
       body.position.y = 1.1;
       g.add(body);
-      // crown
-      const crownMat = new THREE.MeshStandardMaterial({ color: 0xfde047, emissive: 0x804000, emissiveIntensity: 0.6, metalness: 0.7, roughness: 0.2 });
-      for (let i = 0; i < 7; i++) {
-        const ang = (i / 7) * Math.PI - Math.PI / 2;
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), crownMat);
-        spike.position.set(Math.sin(ang) * 0.7, 2.0, Math.cos(ang) * 0.7);
-        spike.lookAt(spike.position.x * 2, spike.position.y + 1, spike.position.z * 2);
+      // crown — bright gold spikes, more visible
+      const crownMat = new THREE.MeshStandardMaterial({
+        color: 0xfff0a0, emissive: 0xffa020, emissiveIntensity: 1.2,
+        metalness: 0.9, roughness: 0.15
+      });
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.55, 6), crownMat);
+        spike.position.set(Math.sin(ang) * 0.85, 2.05, Math.cos(ang) * 0.85);
+        // tilt slightly outward
+        spike.rotation.x = -Math.cos(ang) * 0.2;
+        spike.rotation.z = Math.sin(ang) * 0.2;
         g.add(spike);
+        // small gem at base of each spike
+        const gemMat = new THREE.MeshStandardMaterial({
+          color: 0xff3050, emissive: 0xcc0030, emissiveIntensity: 1.0, metalness: 0.5, roughness: 0.1
+        });
+        const gem = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), gemMat);
+        gem.position.set(Math.sin(ang) * 0.85, 1.85, Math.cos(ang) * 0.85);
+        g.add(gem);
       }
-      const crownBase = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.08, 8, 16), crownMat);
-      crownBase.position.y = 1.85;
+      // crown base ring (thicker, more visible)
+      const crownBase = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.12, 10, 24), crownMat);
+      crownBase.position.y = 1.78;
       crownBase.rotation.x = Math.PI / 2;
       g.add(crownBase);
+      // top jewel
+      const topJewelMat = new THREE.MeshStandardMaterial({
+        color: 0xff3060, emissive: 0xff0040, emissiveIntensity: 1.5, metalness: 0.5, roughness: 0.05
+      });
+      const topJewel = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), topJewelMat);
+      topJewel.position.y = 2.35;
+      g.add(topJewel);
       // eyes (large evil)
       const eyeWMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const eyeBMat = new THREE.MeshBasicMaterial({ color: 0xff0040 });
@@ -1208,15 +1237,19 @@ class Game {
     const h = 600;
     ctx.clearRect(0, 0, w, h);
 
-    // labels above enemies
+    // labels above enemies — sorted far-first so close ones overlay
+    const labelData = [];
     for (const enemy of this.enemies) {
       if (!enemy.alive && !enemy.dying) continue;
       if (!enemy.romaji) continue;
       const wp = this._enemyHitPoint(enemy);
-      // raise label above head
       wp.y += enemy.type === 'boss' ? 1.5 : enemy.type === 'dragon' ? 1.2 : enemy.type === 'wolf' ? 0.9 : 0.8;
       const sp = this._worldToScreen(wp);
       if (sp.z > 1 || sp.z < -1) continue;
+      labelData.push({ enemy, sp });
+    }
+    labelData.sort((a, b) => b.sp.z - a.sp.z); // far → near
+    for (const { enemy, sp } of labelData) {
       this._drawEnemyLabel(ctx, enemy, sp);
     }
 
