@@ -1,10 +1,14 @@
-const FPV_SIZE = {
-  slime: 95,
-  bat: 100,
-  wolf: 115,
-  dragon: 145,
-  boss: 200
-};
+// 3D scene units. enemy.x (logical 100..1050) maps to world z (-1..-50).
+const Z_WALL = -1.0;
+const Z_FAR = -50.0;
+const LANE_HALF = 2.5;
+
+function logicalToWorld(enemy) {
+  const t = Math.max(0, Math.min(1.4, (enemy.x - 100) / 950));
+  const z = Z_WALL + (Z_FAR - Z_WALL) * t;
+  const x = (enemy.y - 250) / 170 * LANE_HALF;
+  return { x, z };
+}
 
 class Enemy {
   constructor(type, word, laneY, delay) {
@@ -24,6 +28,8 @@ class Enemy {
     this.targeted = false;
     this.hitFlash = 0;
     this.words = [word];
+    this.mesh = null;
+    this.bobOffset = Math.random() * Math.PI * 2;
   }
 
   setWords(words) {
@@ -53,9 +59,10 @@ class Enemy {
 }
 
 class Game {
-  constructor(canvas, difficulty, words, onGameEnd) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+  constructor(canvas3d, canvas2d, difficulty, words, onGameEnd) {
+    this.canvas3d = canvas3d;
+    this.canvas2d = canvas2d;
+    this.ctx2d = canvas2d.getContext('2d');
     this.difficulty = difficulty;
     this.allWords = words;
     this.onGameEnd = onGameEnd;
@@ -85,31 +92,608 @@ class Game {
     this.arrows = [];
     this.bowRecoil = 0;
     this.damageFlash = 0;
+    this.cameraShake = 0;
 
-    this.vp = { x: 500, y: 175 };
-    this.groundY = 510;
-    this.bowAnchor = { x: 880, y: 410 };
+    this._setupThree();
+    this._buildScene();
 
     this._boundKeyHandler = this._onKey.bind(this);
     this._boundClickHandler = this._onClick.bind(this);
     document.addEventListener('keydown', this._boundKeyHandler);
-    canvas.addEventListener('click', this._boundClickHandler);
+    canvas3d.addEventListener('click', this._boundClickHandler);
 
     this._startWave();
     requestAnimationFrame(this._loop.bind(this));
   }
 
-  _project(enemy) {
-    const t = Math.max(0, Math.min(1, (enemy.x - 100) / 950));
-    const near = 1 - t;
-    const laneNorm = (enemy.y - 250) / 170;
-    const spread = 90 + near * 410;
-    const sx = this.vp.x + laneNorm * spread;
-    const sy = this.vp.y + near * (this.groundY - this.vp.y);
-    const baseFpv = FPV_SIZE[enemy.type] || 100;
-    const scale = (0.45 + Math.pow(near, 1.15) * 1.1);
-    const appSize = baseFpv * scale;
-    return { sx, sy, scale, near, appSize };
+  _setupThree() {
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas3d, antialias: true });
+    this.renderer.setSize(1000, 600, false);
+    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+    this.renderer.shadowMap.enabled = false;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.1;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x05030a);
+    this.scene.fog = new THREE.Fog(0x0a0408, 8, 40);
+
+    this.camera = new THREE.PerspectiveCamera(62, 1000 / 600, 0.1, 100);
+    this.camera.position.set(0, 1.7, 1.0);
+    this.camera.lookAt(0, 1.5, -5);
+  }
+
+  _buildScene() {
+    const scene = this.scene;
+
+    // ---- TEXTURES ----
+    const rockTex = this._makeRockTexture(512);
+    rockTex.repeat.set(4, 2);
+    const floorTex = this._makeFloorTexture(512);
+    floorTex.repeat.set(6, 12);
+
+    // ---- TUNNEL GEOMETRY ----
+    const tunnelLen = 60;
+    const tunnelW = 8;
+    const tunnelH = 5;
+
+    // floor
+    const floorGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen);
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: floorTex,
+      color: 0x6a4a2a,
+      roughness: 0.95,
+      metalness: 0.05
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, -tunnelLen / 2 + 5);
+    scene.add(floor);
+
+    // ceiling
+    const ceilGeo = new THREE.PlaneGeometry(tunnelW, tunnelLen);
+    const ceilMat = new THREE.MeshStandardMaterial({
+      map: rockTex,
+      color: 0x2a1a10,
+      roughness: 1,
+      metalness: 0
+    });
+    const ceil = new THREE.Mesh(ceilGeo, ceilMat);
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(0, tunnelH, -tunnelLen / 2 + 5);
+    scene.add(ceil);
+
+    // walls
+    const wallGeo = new THREE.PlaneGeometry(tunnelLen, tunnelH);
+    const wallMatL = new THREE.MeshStandardMaterial({
+      map: this._makeRockTexture(512, 0.7),
+      color: 0x5a3a22,
+      roughness: 1,
+      metalness: 0
+    });
+    wallMatL.map.repeat.set(6, 1);
+    const leftWall = new THREE.Mesh(wallGeo, wallMatL);
+    leftWall.rotation.y = Math.PI / 2;
+    leftWall.position.set(-tunnelW / 2, tunnelH / 2, -tunnelLen / 2 + 5);
+    scene.add(leftWall);
+
+    const wallMatR = wallMatL.clone();
+    wallMatR.map = this._makeRockTexture(512, 0.6);
+    wallMatR.map.repeat.set(6, 1);
+    const rightWall = new THREE.Mesh(wallGeo, wallMatR);
+    rightWall.rotation.y = -Math.PI / 2;
+    rightWall.position.set(tunnelW / 2, tunnelH / 2, -tunnelLen / 2 + 5);
+    scene.add(rightWall);
+
+    // tunnel end cap (far darkness)
+    const endGeo = new THREE.PlaneGeometry(tunnelW, tunnelH);
+    const endMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const endCap = new THREE.Mesh(endGeo, endMat);
+    endCap.position.set(0, tunnelH / 2, -tunnelLen + 5);
+    scene.add(endCap);
+
+    // wood support beams (overhead, periodic)
+    const beamMat = new THREE.MeshStandardMaterial({ color: 0x2a1808, roughness: 1 });
+    for (let z = -2; z > -tunnelLen + 5; z -= 6) {
+      // horizontal beam
+      const beamGeo = new THREE.BoxGeometry(tunnelW + 0.2, 0.3, 0.35);
+      const beam = new THREE.Mesh(beamGeo, beamMat);
+      beam.position.set(0, tunnelH - 0.15, z);
+      scene.add(beam);
+      // vertical posts
+      const postGeo = new THREE.BoxGeometry(0.35, tunnelH, 0.35);
+      const post1 = new THREE.Mesh(postGeo, beamMat);
+      post1.position.set(-tunnelW / 2 + 0.18, tunnelH / 2, z);
+      scene.add(post1);
+      const post2 = new THREE.Mesh(postGeo, beamMat);
+      post2.position.set(tunnelW / 2 - 0.18, tunnelH / 2, z);
+      scene.add(post2);
+    }
+
+    // scattered rocks on the floor
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1, flatShading: true });
+    for (let i = 0; i < 30; i++) {
+      const r = 0.08 + Math.random() * 0.18;
+      const g = new THREE.DodecahedronGeometry(r, 0);
+      const m = new THREE.Mesh(g, rockMat);
+      m.position.set(
+        (Math.random() - 0.5) * (tunnelW - 1),
+        r * 0.3,
+        -2 - Math.random() * (tunnelLen - 10)
+      );
+      m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      scene.add(m);
+    }
+
+    // ---- LIGHTING ----
+    const ambient = new THREE.AmbientLight(0x1a1228, 0.55);
+    scene.add(ambient);
+
+    // soft fill from above
+    const fill = new THREE.HemisphereLight(0x2a1810, 0x0a0408, 0.3);
+    scene.add(fill);
+
+    // ---- TORCHES ----
+    this.torches = [];
+    const torchZs = [-3, -9, -15, -22, -30, -38];
+    for (const z of torchZs) {
+      for (const side of [-1, 1]) {
+        const x = side * (tunnelW / 2 - 0.1);
+        this._addTorch(x, 2.7, z, side);
+      }
+    }
+
+    // ---- ENTITY GROUPS ----
+    this.enemyGroup = new THREE.Group();
+    scene.add(this.enemyGroup);
+    this.arrowGroup = new THREE.Group();
+    scene.add(this.arrowGroup);
+  }
+
+  _addTorch(x, y, z, side) {
+    const group = new THREE.Group();
+    // bracket (iron)
+    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.6, metalness: 0.7 });
+    const bracketGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8);
+    const bracket = new THREE.Mesh(bracketGeo, bracketMat);
+    bracket.position.set(-side * 0.15, 0, 0);
+    bracket.rotation.z = side * Math.PI / 2.3;
+    group.add(bracket);
+    // wood handle of torch
+    const handleMat = new THREE.MeshStandardMaterial({ color: 0x3a2010, roughness: 1 });
+    const handleGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.45, 8);
+    const handle = new THREE.Mesh(handleGeo, handleMat);
+    handle.position.set(-side * 0.32, 0.05, 0);
+    handle.rotation.z = side * Math.PI / 2.5;
+    group.add(handle);
+    // flame
+    const flameMat = new THREE.MeshBasicMaterial({
+      color: 0xffb050,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false
+    });
+    const flameGeo = new THREE.SphereGeometry(0.18, 8, 8);
+    const flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.position.set(-side * 0.45, 0.22, 0);
+    group.add(flame);
+    // inner bright core
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.9, depthWrite: false });
+    const coreGeo = new THREE.SphereGeometry(0.08, 6, 6);
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    core.position.copy(flame.position);
+    group.add(core);
+    // light
+    const light = new THREE.PointLight(0xffa040, 4.5, 14, 1.6);
+    light.position.set(-side * 0.45, 0.22, 0);
+    group.add(light);
+
+    group.position.set(x, y, z);
+    this.scene.add(group);
+    this.torches.push({ group, flame, core, light, side, baseY: 0.22 });
+  }
+
+  _animateTorches(dt) {
+    for (const t of this.torches) {
+      const flick = 0.85 + Math.sin(Date.now() / 100 + t.group.position.z) * 0.15 + (Math.random() - 0.5) * 0.1;
+      t.light.intensity = 4.5 * flick;
+      const s = 0.85 + Math.random() * 0.3;
+      t.flame.scale.set(s, s * 1.3, s);
+      t.core.scale.set(s, s * 1.3, s);
+    }
+  }
+
+  _makeRockTexture(size = 256, variant = 0) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#2c1d10';
+    ctx.fillRect(0, 0, size, size);
+    // noise blobs
+    for (let i = 0; i < 1600; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 1 + Math.random() * 9;
+      const v = Math.random();
+      const shade = v < 0.3 ? '#0a0604' : v < 0.6 ? '#1a1008' : v < 0.85 ? '#4a3018' : '#6a4426';
+      ctx.fillStyle = shade;
+      ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // cracks
+    ctx.strokeStyle = '#080402';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 30; i++) {
+      ctx.beginPath();
+      let cx = Math.random() * size;
+      let cy = Math.random() * size;
+      ctx.moveTo(cx, cy);
+      const segs = 3 + Math.floor(Math.random() * 6);
+      for (let j = 0; j < segs; j++) {
+        cx += (Math.random() - 0.5) * 60;
+        cy += (Math.random() - 0.5) * 60;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // larger boulders
+    for (let i = 0; i < 6; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 20 + Math.random() * 40;
+      const g = ctx.createRadialGradient(x - r / 3, y - r / 3, 2, x, y, r);
+      g.addColorStop(0, '#5a3a1e');
+      g.addColorStop(0.6, '#3a2410');
+      g.addColorStop(1, '#0a0604');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _makeFloorTexture(size = 512) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#3a2818';
+    ctx.fillRect(0, 0, size, size);
+    // cobblestones
+    const stoneSize = 64;
+    for (let y = 0; y < size; y += stoneSize) {
+      const off = (y / stoneSize) % 2 === 0 ? 0 : stoneSize / 2;
+      for (let x = -stoneSize; x < size + stoneSize; x += stoneSize) {
+        const sx = x + off + (Math.random() - 0.5) * 6;
+        const sy = y + (Math.random() - 0.5) * 6;
+        const sw = stoneSize - 4 + Math.random() * 4;
+        const sh = stoneSize - 4 + Math.random() * 4;
+        const shade = Math.random();
+        const g = ctx.createRadialGradient(sx + sw / 2 - 8, sy + sh / 2 - 8, 4, sx + sw / 2, sy + sh / 2, sw / 1.4);
+        if (shade < 0.5) {
+          g.addColorStop(0, '#6a4828');
+          g.addColorStop(1, '#1c1208');
+        } else {
+          g.addColorStop(0, '#5a3a22');
+          g.addColorStop(1, '#10080a');
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(sx, sy, sw, sh);
+        ctx.strokeStyle = '#0a0604';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(sx, sy, sw, sh);
+      }
+    }
+    // dirt overlay
+    for (let i = 0; i < 600; i++) {
+      ctx.fillStyle = `rgba(${20 + Math.random() * 60},${10 + Math.random() * 30},0,${0.1 + Math.random() * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(Math.random() * size, Math.random() * size, 1 + Math.random() * 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _buildEnemyMesh(enemy) {
+    const t = enemy.type;
+    const g = new THREE.Group();
+    if (t === 'slime') {
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0x4ade80, emissive: 0x10401a, emissiveIntensity: 0.5,
+        roughness: 0.3, metalness: 0.1
+      });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.45, 24, 20), bodyMat);
+      body.scale.set(1.1, 0.85, 1.1);
+      body.position.y = 0.38;
+      g.add(body);
+      // belly highlight
+      const highlightMat = new THREE.MeshBasicMaterial({ color: 0x90f0b0, transparent: true, opacity: 0.4 });
+      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), highlightMat);
+      hl.position.set(-0.15, 0.46, 0.3);
+      g.add(hl);
+      // eyes
+      const eyeWMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const eyeBMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
+      for (const side of [-1, 1]) {
+        const ew = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), eyeWMat);
+        ew.position.set(side * 0.13, 0.46, 0.36);
+        g.add(ew);
+        const eb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeBMat);
+        eb.position.set(side * 0.13, 0.46, 0.42);
+        g.add(eb);
+      }
+      // mouth
+      const mouthMat = new THREE.MeshBasicMaterial({ color: 0x102818 });
+      const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), mouthMat);
+      mouth.scale.set(1, 0.5, 0.5);
+      mouth.position.set(0, 0.32, 0.42);
+      g.add(mouth);
+      g.userData.scale = 1.0;
+    } else if (t === 'bat') {
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0x6a30a0, emissive: 0x301050, emissiveIntensity: 0.5,
+        roughness: 0.5, metalness: 0
+      });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), bodyMat);
+      body.scale.set(0.8, 1.1, 1.0);
+      g.add(body);
+      // wings
+      const wingMat = new THREE.MeshStandardMaterial({
+        color: 0x4a1f80, side: THREE.DoubleSide, roughness: 0.7
+      });
+      const wingShape = new THREE.Shape();
+      wingShape.moveTo(0, 0);
+      wingShape.quadraticCurveTo(0.5, 0.2, 0.8, -0.1);
+      wingShape.lineTo(0.6, -0.2);
+      wingShape.quadraticCurveTo(0.3, -0.05, 0, -0.15);
+      wingShape.lineTo(0, 0);
+      const wingGeo = new THREE.ShapeGeometry(wingShape);
+      const wingL = new THREE.Mesh(wingGeo, wingMat);
+      wingL.position.x = -0.18;
+      wingL.scale.x = -1;
+      g.add(wingL);
+      const wingR = new THREE.Mesh(wingGeo, wingMat);
+      wingR.position.x = 0.18;
+      g.add(wingR);
+      g.userData.wings = [wingL, wingR];
+      // eyes
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+      for (const side of [-1, 1]) {
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), eyeMat);
+        e.position.set(side * 0.08, 0.05, 0.18);
+        g.add(e);
+      }
+      // ears
+      const earGeo = new THREE.ConeGeometry(0.06, 0.14, 6);
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(earGeo, bodyMat);
+        ear.position.set(side * 0.1, 0.22, 0);
+        g.add(ear);
+      }
+      g.userData.scale = 0.95;
+    } else if (t === 'wolf') {
+      const furMat = new THREE.MeshStandardMaterial({
+        color: 0x7a8a98, emissive: 0x202830, emissiveIntensity: 0.35,
+        roughness: 0.9, metalness: 0
+      });
+      // body
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.45, 1.1), furMat);
+      body.position.y = 0.55;
+      g.add(body);
+      // head
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), furMat);
+      head.position.set(0, 0.7, 0.7);
+      g.add(head);
+      // snout
+      const snoutMat = new THREE.MeshStandardMaterial({ color: 0x4a5060, roughness: 1 });
+      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.35), snoutMat);
+      snout.position.set(0, 0.6, 1.0);
+      g.add(snout);
+      // ears
+      const earGeo = new THREE.ConeGeometry(0.08, 0.2, 4);
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(earGeo, furMat);
+        ear.position.set(side * 0.18, 1.0, 0.65);
+        g.add(ear);
+      }
+      // legs
+      const legGeo = new THREE.BoxGeometry(0.16, 0.4, 0.16);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const leg = new THREE.Mesh(legGeo, furMat);
+        leg.position.set(sx * 0.22, 0.2, sz * 0.4);
+        g.add(leg);
+      }
+      // eyes
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+      for (const side of [-1, 1]) {
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeMat);
+        e.position.set(side * 0.13, 0.78, 0.95);
+        g.add(e);
+      }
+      g.userData.scale = 0.9;
+    } else if (t === 'dragon') {
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xef4444, emissive: 0x601010, emissiveIntensity: 0.6,
+        roughness: 0.4, metalness: 0.15
+      });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 18), bodyMat);
+      body.scale.set(1.0, 0.9, 1.3);
+      body.position.y = 0.65;
+      g.add(body);
+      // head
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 18, 16), bodyMat);
+      head.position.set(0, 0.85, 0.7);
+      head.scale.set(0.9, 0.85, 1.1);
+      g.add(head);
+      // horns
+      const hornMat = new THREE.MeshStandardMaterial({ color: 0x301008, roughness: 0.8 });
+      const hornGeo = new THREE.ConeGeometry(0.07, 0.35, 6);
+      for (const side of [-1, 1]) {
+        const horn = new THREE.Mesh(hornGeo, hornMat);
+        horn.position.set(side * 0.15, 1.15, 0.65);
+        horn.rotation.set(0.3, 0, side * -0.3);
+        g.add(horn);
+      }
+      // wings
+      const wingMat = new THREE.MeshStandardMaterial({ color: 0x801010, roughness: 0.6, side: THREE.DoubleSide });
+      const wingShape = new THREE.Shape();
+      wingShape.moveTo(0, 0);
+      wingShape.quadraticCurveTo(0.8, 0.5, 1.0, -0.1);
+      wingShape.quadraticCurveTo(0.6, -0.3, 0.3, -0.1);
+      wingShape.lineTo(0, 0);
+      const wingGeo = new THREE.ShapeGeometry(wingShape);
+      const wingL = new THREE.Mesh(wingGeo, wingMat);
+      wingL.position.set(-0.4, 0.9, 0);
+      wingL.scale.x = -1;
+      g.add(wingL);
+      const wingR = new THREE.Mesh(wingGeo, wingMat);
+      wingR.position.set(0.4, 0.9, 0);
+      g.add(wingR);
+      g.userData.wings = [wingL, wingR];
+      // eyes
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+      for (const side of [-1, 1]) {
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), eyeMat);
+        e.position.set(side * 0.13, 0.9, 0.95);
+        g.add(e);
+      }
+      g.userData.scale = 1.1;
+    } else if (t === 'boss') {
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xf59e0b, emissive: 0x803010, emissiveIntensity: 0.8,
+        roughness: 0.4, metalness: 0.25
+      });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1.0, 32, 24), bodyMat);
+      body.scale.set(1.1, 1.0, 1.1);
+      body.position.y = 1.1;
+      g.add(body);
+      // crown
+      const crownMat = new THREE.MeshStandardMaterial({ color: 0xfde047, emissive: 0x804000, emissiveIntensity: 0.6, metalness: 0.7, roughness: 0.2 });
+      for (let i = 0; i < 7; i++) {
+        const ang = (i / 7) * Math.PI - Math.PI / 2;
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), crownMat);
+        spike.position.set(Math.sin(ang) * 0.7, 2.0, Math.cos(ang) * 0.7);
+        spike.lookAt(spike.position.x * 2, spike.position.y + 1, spike.position.z * 2);
+        g.add(spike);
+      }
+      const crownBase = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.08, 8, 16), crownMat);
+      crownBase.position.y = 1.85;
+      crownBase.rotation.x = Math.PI / 2;
+      g.add(crownBase);
+      // eyes (large evil)
+      const eyeWMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const eyeBMat = new THREE.MeshBasicMaterial({ color: 0xff0040 });
+      for (const side of [-1, 1]) {
+        const ew = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), eyeWMat);
+        ew.position.set(side * 0.32, 1.3, 0.85);
+        g.add(ew);
+        const eb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), eyeBMat);
+        eb.position.set(side * 0.32, 1.3, 0.96);
+        g.add(eb);
+      }
+      // mouth (jagged smile)
+      const mouthMat = new THREE.MeshBasicMaterial({ color: 0x301010 });
+      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.05), mouthMat);
+      mouth.position.set(0, 0.95, 1.0);
+      g.add(mouth);
+      // glow point light
+      const glow = new THREE.PointLight(0xff8030, 2.5, 6, 2);
+      glow.position.set(0, 1.3, 0);
+      g.add(glow);
+      g.userData.scale = 1.2;
+      g.userData.glow = glow;
+    }
+
+    g.userData.bobBase = g.position.y;
+    return g;
+  }
+
+  _addEnemyMesh(enemy) {
+    const mesh = this._buildEnemyMesh(enemy);
+    const pos = logicalToWorld(enemy);
+    mesh.position.set(pos.x, 0, pos.z);
+    this.enemyGroup.add(mesh);
+    enemy.mesh = mesh;
+  }
+
+  _removeEnemyMesh(enemy) {
+    if (enemy.mesh) {
+      this.enemyGroup.remove(enemy.mesh);
+      enemy.mesh.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+      enemy.mesh = null;
+    }
+  }
+
+  _updateEnemyMeshes(dt) {
+    const time = Date.now() / 1000;
+    for (const enemy of this.enemies) {
+      if (!enemy.mesh) continue;
+      const pos = logicalToWorld(enemy);
+      enemy.mesh.position.x = pos.x;
+      enemy.mesh.position.z = pos.z;
+      // bobbing
+      let bob = 0;
+      if (enemy.type === 'slime') {
+        bob = Math.abs(Math.sin(time * 4 + enemy.bobOffset)) * 0.08;
+        enemy.mesh.position.y = bob;
+        const squish = 0.85 + Math.cos(time * 4 + enemy.bobOffset) * 0.08;
+        enemy.mesh.scale.y = squish;
+        enemy.mesh.scale.x = 2 - squish;
+        enemy.mesh.scale.z = 2 - squish;
+      } else if (enemy.type === 'bat') {
+        enemy.mesh.position.y = 1.5 + Math.sin(time * 2 + enemy.bobOffset) * 0.15;
+        if (enemy.mesh.userData.wings) {
+          const flap = Math.sin(time * 14) * 0.6;
+          enemy.mesh.userData.wings[0].rotation.y = flap;
+          enemy.mesh.userData.wings[1].rotation.y = -flap;
+        }
+      } else if (enemy.type === 'wolf') {
+        enemy.mesh.position.y = Math.sin(time * 6 + enemy.bobOffset) * 0.04;
+      } else if (enemy.type === 'dragon') {
+        enemy.mesh.position.y = 0.5 + Math.sin(time * 2.5 + enemy.bobOffset) * 0.1;
+        if (enemy.mesh.userData.wings) {
+          const flap = Math.sin(time * 6) * 0.5;
+          enemy.mesh.userData.wings[0].rotation.y = flap;
+          enemy.mesh.userData.wings[1].rotation.y = -flap;
+        }
+      } else if (enemy.type === 'boss') {
+        enemy.mesh.position.y = Math.sin(time * 1.5 + enemy.bobOffset) * 0.15;
+        enemy.mesh.rotation.y += dt * 0.3;
+        const pulse = 0.8 + Math.sin(time * 3) * 0.4;
+        if (enemy.mesh.userData.glow) enemy.mesh.userData.glow.intensity = 2.5 + pulse;
+      }
+      // face the camera (rotate toward player on +Z)
+      if (enemy.type !== 'boss') {
+        enemy.mesh.lookAt(this.camera.position.x, enemy.mesh.position.y, this.camera.position.z);
+      }
+      // hit flash
+      if (enemy.hitFlash > 0) {
+        const flash = 0.5 + Math.sin(Date.now() / 30) * 0.5;
+        enemy.mesh.traverse(obj => {
+          if (obj.material && obj.material.emissive) {
+            obj.material.emissiveIntensity = 0.5 + flash * 2;
+          }
+        });
+      } else if (enemy.mesh.userData.normalizedEmissive !== true) {
+        // reset emissive intensity periodically
+      }
+    }
   }
 
   _getWord(minLen, maxLen) {
@@ -142,13 +726,11 @@ class Game {
       this._victory();
       return;
     }
-
     this.state = 'wave_intro';
     this.stateTimer = 2.0;
 
     const types = this.config.generate(this.currentWave);
     const hasBoss = types.includes('boss');
-
     if (hasBoss) {
       this.effects.triggerWarning('WARNING');
       this.audio.bossWarning();
@@ -158,7 +740,7 @@ class Game {
     }
 
     const laneMin = 80;
-    const laneMax = this.canvas.height - 180;
+    const laneMax = 420;
     const laneCount = types.length;
 
     this.pendingEnemies = types.map((type, i) => {
@@ -169,12 +751,9 @@ class Game {
         : laneMin + ((laneMax - laneMin) / (laneCount + 1)) * (i + 1);
       const spawnDelay = Math.max(0.4, 1.2 - this.currentWave * 0.05);
       const enemy = new Enemy(type, this._getWord(minL, maxL), y, i * spawnDelay);
-
       if (def.hp > 1) {
         const words = [enemy.word];
-        for (let h = 1; h < def.hp; h++) {
-          words.push(this._getWord(minL, maxL));
-        }
+        for (let h = 1; h < def.hp; h++) words.push(this._getWord(minL, maxL));
         enemy.setWords(words);
       }
       return enemy;
@@ -184,6 +763,7 @@ class Game {
   _spawnPending() {
     for (const enemy of this.pendingEnemies) {
       enemy.initRomaji();
+      this._addEnemyMesh(enemy);
     }
     this.enemies.push(...this.pendingEnemies);
     this.pendingEnemies = [];
@@ -199,18 +779,15 @@ class Game {
     }
   }
 
-  _onClick(e) {
-  }
+  _onClick(e) {}
 
   _onKey(e) {
     if (!this.running) return;
     if (this.state !== 'playing') return;
-
     const key = e.key.toLowerCase();
     if (key.length !== 1 || key < 'a' || key > 'z') {
       if (key !== '-' && key !== "'") return;
     }
-
     if (this.targetEnemy && this.targetEnemy.alive) {
       const result = this.targetEnemy.romaji.processKey(key);
       if (result.result === 'miss') {
@@ -226,22 +803,17 @@ class Game {
         this.totalCorrect++;
         const enemy = this.targetEnemy;
         const hasMore = enemy.nextWord();
-        if (!hasMore) {
-          this._killEnemy(enemy);
-        } else {
-          this._shootArrowAt(enemy, false);
-        }
+        if (!hasMore) this._killEnemy(enemy);
+        else this._shootArrowAt(enemy, false);
       }
       return;
     }
-
     this._pendingBuffer = (this._pendingBuffer || '') + key;
     const buf = this._pendingBuffer;
-
     const candidates = [];
     for (const enemy of this.enemies) {
       if (!enemy.alive || !enemy.romaji) continue;
-      if (enemy.x > this.canvas.width) continue;
+      if (enemy.x > 1000) continue;
       const testEngine = new RomajiEngine(enemy.currentWord);
       let valid = true;
       for (const ch of buf) {
@@ -250,48 +822,46 @@ class Game {
       }
       if (valid) candidates.push(enemy);
     }
-
     if (candidates.length === 0) {
       this._pendingBuffer = '';
       return;
     }
-
     if (candidates.length === 1) {
       const enemy = candidates[0];
       this._setTarget(enemy);
-      for (const ch of buf) {
-        enemy.romaji.processKey(ch);
-      }
+      for (const ch of buf) enemy.romaji.processKey(ch);
       this.totalCorrect += buf.length;
       this.audio.keyCorrect();
       if (enemy.romaji.isComplete) {
         const hasMore = enemy.nextWord();
-        if (!hasMore) {
-          this._killEnemy(enemy);
-        } else {
-          this._shootArrowAt(enemy, false);
-        }
+        if (!hasMore) this._killEnemy(enemy);
+        else this._shootArrowAt(enemy, false);
       }
       this._pendingBuffer = '';
       return;
     }
-
     this.audio.keyCorrect();
+  }
+
+  _arrowStartWorld() {
+    // bow grip approximate world position (just below + right of camera)
+    return new THREE.Vector3(
+      this.camera.position.x + 0.4,
+      this.camera.position.y - 0.5,
+      this.camera.position.z - 0.4
+    );
   }
 
   _shootArrowAt(enemy, isFatal) {
     this.bowRecoil = 1.0;
-    this.arrows.push({
-      enemy: enemy,
-      startX: this.bowAnchor.x - 50,
-      startY: this.bowAnchor.y - 30,
-      progress: 0,
-      duration: 0.18,
-      alive: true,
+    const start = this._arrowStartWorld();
+    this._spawnArrow3D({
+      enemy,
+      startWorld: start,
+      isHit: true,
       isBoss: false,
       pts: 0,
-      combo: 0,
-      isHit: true
+      combo: 0
     });
     enemy.hitFlash = 0.3;
     this.audio.keyCorrect();
@@ -303,24 +873,66 @@ class Game {
     if (this.combo > this.maxCombo) this.maxCombo = this.combo;
     const comboMult = 1 + Math.floor(this.combo / 3) * 0.2;
     const pts = Math.floor(enemy.def.score * enemy.maxHp * comboMult);
-
     enemy.dying = true;
     enemy.alive = false;
+    const start = this._arrowStartWorld();
+    this._spawnArrow3D({
+      enemy,
+      startWorld: start,
+      isHit: false,
+      isBoss: enemy.type === 'boss',
+      pts,
+      combo: this.combo
+    });
+    this._setTarget(null);
+  }
+
+  _spawnArrow3D(opts) {
+    const shaftMat = new THREE.MeshStandardMaterial({ color: 0xd4a017, emissive: 0x402010, emissiveIntensity: 0.4, roughness: 0.5 });
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, metalness: 0.7, roughness: 0.3 });
+    const fletchMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.7 });
+
+    const group = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.7, 8), shaftMat);
+    shaft.rotation.z = Math.PI / 2;
+    group.add(shaft);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.13, 8), headMat);
+    head.rotation.z = -Math.PI / 2;
+    head.position.x = 0.42;
+    group.add(head);
+    // fletching (3 fins)
+    for (let i = 0; i < 3; i++) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.005), fletchMat);
+      fin.position.x = -0.32;
+      fin.rotation.x = (i / 3) * Math.PI * 2;
+      group.add(fin);
+    }
+
+    group.position.copy(opts.startWorld);
+    this.arrowGroup.add(group);
 
     this.arrows.push({
-      enemy: enemy,
-      startX: this.bowAnchor.x - 50,
-      startY: this.bowAnchor.y - 30,
+      enemy: opts.enemy,
+      startWorld: opts.startWorld.clone(),
       progress: 0,
-      duration: 0.18,
+      duration: 0.22,
       alive: true,
-      isBoss: enemy.type === 'boss',
-      pts: pts,
-      combo: this.combo,
-      isHit: false
+      isHit: opts.isHit,
+      isBoss: opts.isBoss,
+      pts: opts.pts,
+      combo: opts.combo,
+      mesh: group
     });
+  }
 
-    this._setTarget(null);
+  _enemyHitPoint(enemy) {
+    const pos = logicalToWorld(enemy);
+    let y = 0.7;
+    if (enemy.type === 'bat') y = 1.5;
+    else if (enemy.type === 'dragon') y = 1.0;
+    else if (enemy.type === 'boss') y = 1.4;
+    else if (enemy.type === 'wolf') y = 0.7;
+    return new THREE.Vector3(pos.x, y, pos.z);
   }
 
   _updateArrows(dt) {
@@ -330,21 +942,36 @@ class Game {
       if (arrow.progress >= 1) {
         arrow.alive = false;
         this._onArrowHit(arrow);
+        if (arrow.mesh) {
+          this.arrowGroup.remove(arrow.mesh);
+          arrow.mesh.traverse(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+          });
+        }
+        continue;
+      }
+      const target = arrow.enemy ? this._enemyHitPoint(arrow.enemy) : new THREE.Vector3(0, 1.5, -10);
+      const p = arrow.progress;
+      if (arrow.mesh) {
+        arrow.mesh.position.lerpVectors(arrow.startWorld, target, p);
+        // rotate to point toward target
+        const dir = new THREE.Vector3().subVectors(target, arrow.mesh.position).normalize();
+        arrow.mesh.lookAt(arrow.mesh.position.clone().add(dir));
+        arrow.mesh.rotation.z = 0;
       }
     }
     this.arrows = this.arrows.filter(a => a.alive);
   }
 
   _onArrowHit(arrow) {
-    let tx, ty;
+    let screenPos = null;
     if (arrow.enemy) {
-      const proj = this._project(arrow.enemy);
-      tx = proj.sx;
-      ty = proj.sy;
-    } else {
-      tx = this.vp.x;
-      ty = this.vp.y;
+      const wp = this._enemyHitPoint(arrow.enemy);
+      screenPos = this._worldToScreen(wp);
     }
+    const tx = screenPos ? screenPos.x : 500;
+    const ty = screenPos ? screenPos.y : 300;
 
     if (arrow.isHit) {
       this.effects.explode(tx, ty, '#d4a017', 8);
@@ -353,24 +980,29 @@ class Game {
       if (arrow.enemy) arrow.enemy.hitFlash = 0.3;
       return;
     }
-
     this.kills++;
     this.score += arrow.pts;
-
     if (arrow.enemy) arrow.enemy.dying = false;
-
     if (arrow.isBoss) {
       this.effects.bossExplode(tx, ty);
       this.audio.bossKill();
       this.effects.triggerShake(10);
+      this.cameraShake = 0.6;
     } else {
       this.effects.explode(tx, ty, '#d4a017');
       this.audio.enemyKill();
     }
     this.effects.addScoreText(tx, ty - 20, arrow.pts);
-    if (arrow.combo >= 3) {
-      this.effects.addComboText(tx, ty, arrow.combo);
-    }
+    if (arrow.combo >= 3) this.effects.addComboText(tx, ty, arrow.combo);
+  }
+
+  _worldToScreen(vec3) {
+    const v = vec3.clone().project(this.camera);
+    return {
+      x: (v.x * 0.5 + 0.5) * 1000,
+      y: (-v.y * 0.5 + 0.5) * 600,
+      z: v.z
+    };
   }
 
   _victory() {
@@ -400,7 +1032,7 @@ class Game {
 
   _endGame(victory) {
     document.removeEventListener('keydown', this._boundKeyHandler);
-    this.canvas.removeEventListener('click', this._boundClickHandler);
+    this.canvas3d.removeEventListener('click', this._boundClickHandler);
     this.onGameEnd({
       victory,
       score: this.score,
@@ -421,10 +1053,8 @@ class Game {
   _loop(time) {
     const dt = this.lastTime ? Math.min((time - this.lastTime) / 1000, 0.05) : 0.016;
     this.lastTime = time;
-
     this._update(dt);
-    this._draw();
-
+    this._render();
     if (this.running || this.state === 'victory' || this.state === 'gameover' || this.state === 'wave_clear' || this.state === 'wave_intro') {
       requestAnimationFrame(this._loop.bind(this));
     }
@@ -435,6 +1065,14 @@ class Game {
     this._updateArrows(dt);
     if (this.bowRecoil > 0) this.bowRecoil = Math.max(0, this.bowRecoil - dt * 6);
     if (this.damageFlash > 0) this.damageFlash = Math.max(0, this.damageFlash - dt * 2);
+    if (this.cameraShake > 0) this.cameraShake = Math.max(0, this.cameraShake - dt * 4);
+
+    this._animateTorches(dt);
+    this._updateEnemyMeshes(dt);
+
+    // subtle breathing camera
+    const t = Date.now() / 1000;
+    this.camera.position.y = 1.7 + Math.sin(t * 0.7) * 0.02;
 
     if (this.state === 'wave_intro') {
       this.stateTimer -= dt;
@@ -444,15 +1082,11 @@ class Game {
       }
       return;
     }
-
     if (this.state === 'wave_clear') {
       this.stateTimer -= dt;
-      if (this.stateTimer <= 0) {
-        this._startWave();
-      }
+      if (this.stateTimer <= 0) this._startWave();
       return;
     }
-
     if (this.state !== 'playing') return;
 
     for (const enemy of this.enemies) {
@@ -464,12 +1098,11 @@ class Game {
         this.wallHp--;
         this.combo = 0;
         this.damageFlash = 1.0;
+        this.cameraShake = 0.5;
         this.effects.triggerShake(8);
         this.effects.triggerFlash('#ef4444');
         this.audio.wallHit();
-        if (enemy === this.targetEnemy) {
-          this.targetEnemy = null;
-        }
+        if (enemy === this.targetEnemy) this.targetEnemy = null;
         if (this.wallHp <= 0) {
           this._gameOver();
           return;
@@ -477,11 +1110,18 @@ class Game {
       }
     }
 
-    this.enemies = this.enemies.filter(e => e.alive || e.dying || e === this.targetEnemy);
-
-    if (this.targetEnemy && !this.targetEnemy.alive) {
-      this._setTarget(null);
+    // remove off-game enemies + cleanup their meshes
+    const keep = [];
+    for (const e of this.enemies) {
+      if (e.alive || e.dying || e === this.targetEnemy) {
+        keep.push(e);
+      } else {
+        this._removeEnemyMesh(e);
+      }
     }
+    this.enemies = keep;
+
+    if (this.targetEnemy && !this.targetEnemy.alive) this._setTarget(null);
 
     const allDead = this.enemies.every(e => !e.alive) && this.arrows.length === 0;
     if (allDead && this.state === 'playing') {
@@ -492,327 +1132,102 @@ class Game {
     }
   }
 
-  _draw() {
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+  _render() {
+    // camera shake
+    if (this.cameraShake > 0) {
+      const s = this.cameraShake;
+      this.camera.position.x = (Math.random() - 0.5) * s * 0.3;
+      this.camera.rotation.z = (Math.random() - 0.5) * s * 0.04;
+    } else {
+      this.camera.position.x = 0;
+      this.camera.rotation.z = 0;
+    }
+    this.renderer.render(this.scene, this.camera);
+    this._drawOverlay();
+  }
 
-    const shake = this.effects.getShakeOffset();
-    ctx.save();
-    ctx.translate(shake.x, shake.y);
+  _drawOverlay() {
+    const ctx = this.ctx2d;
+    const w = 1000;
+    const h = 600;
+    ctx.clearRect(0, 0, w, h);
 
-    this._drawCave(ctx, w, h);
-    this._drawEnemies(ctx);
-    this._drawArrows(ctx);
+    // labels above enemies
+    for (const enemy of this.enemies) {
+      if (!enemy.alive && !enemy.dying) continue;
+      if (!enemy.romaji) continue;
+      const wp = this._enemyHitPoint(enemy);
+      // raise label above head
+      wp.y += enemy.type === 'boss' ? 1.5 : enemy.type === 'dragon' ? 1.2 : enemy.type === 'wolf' ? 0.9 : 0.8;
+      const sp = this._worldToScreen(wp);
+      if (sp.z > 1 || sp.z < -1) continue;
+      this._drawEnemyLabel(ctx, enemy, sp);
+    }
+
     this._drawBow(ctx);
-    this._drawVignette(ctx, w, h);
     this._drawHUD(ctx, w);
     this._drawInputArea(ctx, w, h);
-
-    this.effects.draw(ctx, this.canvas);
-
-    ctx.restore();
+    this._drawVignette(ctx, w, h);
+    this.effects.draw(ctx, this.canvas2d);
   }
 
-  _drawCave(ctx, w, h) {
-    const vpX = this.vp.x;
-    const vpY = this.vp.y;
-
-    // far black depth at vanishing point
-    const bg = ctx.createRadialGradient(vpX, vpY, 10, vpX, vpY, 500);
-    bg.addColorStop(0, '#050308');
-    bg.addColorStop(0.4, '#0c0a14');
-    bg.addColorStop(1, '#1a1208');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
-
-    // ceiling (dark) — top region tapering to vanishing point
-    ctx.fillStyle = '#0a0608';
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(w, 0);
-    ctx.lineTo(w, 60);
-    ctx.lineTo(vpX + 80, vpY);
-    ctx.lineTo(vpX - 80, vpY);
-    ctx.lineTo(0, 60);
-    ctx.closePath();
-    ctx.fill();
-
-    // left wall (perspective)
-    const lwGrad = ctx.createLinearGradient(0, h / 2, vpX, vpY);
-    lwGrad.addColorStop(0, '#3a2a18');
-    lwGrad.addColorStop(0.7, '#1a1208');
-    lwGrad.addColorStop(1, '#080404');
-    ctx.fillStyle = lwGrad;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(vpX - 80, vpY);
-    ctx.lineTo(vpX - 80, vpY + 50);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fill();
-
-    // right wall
-    const rwGrad = ctx.createLinearGradient(w, h / 2, vpX, vpY);
-    rwGrad.addColorStop(0, '#3a2a18');
-    rwGrad.addColorStop(0.7, '#1a1208');
-    rwGrad.addColorStop(1, '#080404');
-    ctx.fillStyle = rwGrad;
-    ctx.beginPath();
-    ctx.moveTo(w, 0);
-    ctx.lineTo(vpX + 80, vpY);
-    ctx.lineTo(vpX + 80, vpY + 50);
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fill();
-
-    // ground (perspective)
-    const gGrad = ctx.createLinearGradient(0, vpY, 0, h);
-    gGrad.addColorStop(0, '#1a1208');
-    gGrad.addColorStop(0.5, '#2a1d10');
-    gGrad.addColorStop(1, '#3a2818');
-    ctx.fillStyle = gGrad;
-    ctx.beginPath();
-    ctx.moveTo(vpX - 80, vpY);
-    ctx.lineTo(vpX + 80, vpY);
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fill();
-
-    // perspective lines on ground
-    ctx.strokeStyle = 'rgba(80, 50, 30, 0.5)';
-    ctx.lineWidth = 1;
-    for (let i = -5; i <= 5; i++) {
-      const groundX = vpX + i * 100;
-      ctx.beginPath();
-      ctx.moveTo(vpX, vpY);
-      ctx.lineTo(groundX < 0 ? 0 : groundX > w ? w : groundX, h);
-      if (i !== 0) {
-        const slope = (groundX - vpX) / (h - vpY);
-        const xAtBottom = vpX + slope * (h - vpY);
-        ctx.moveTo(vpX, vpY);
-        ctx.lineTo(xAtBottom, h);
-      }
-      ctx.stroke();
-    }
-
-    // perspective horizontal "depth" lines on ground
-    ctx.strokeStyle = 'rgba(80, 50, 30, 0.3)';
-    for (let i = 1; i <= 8; i++) {
-      const t = 1 - i / 9;
-      const ly = vpY + (h - vpY) * (1 - Math.pow(t, 1.5));
-      const halfW = ((ly - vpY) / (h - vpY)) * (w / 2);
-      ctx.beginPath();
-      ctx.moveTo(vpX - halfW, ly);
-      ctx.lineTo(vpX + halfW, ly);
-      ctx.stroke();
-    }
-
-    // torches on walls
-    this._drawTorch(ctx, 70, 240, 1.0);
-    this._drawTorch(ctx, w - 70, 240, 1.0);
-    this._drawTorch(ctx, 200, 215, 0.7);
-    this._drawTorch(ctx, w - 200, 215, 0.7);
-    this._drawTorch(ctx, 320, 200, 0.45);
-    this._drawTorch(ctx, w - 320, 200, 0.45);
-  }
-
-  _drawTorch(ctx, x, y, scale) {
-    const flick = 0.85 + Math.sin(Date.now() / 80 + x) * 0.15;
-    // bracket
-    ctx.fillStyle = '#2a1a08';
-    ctx.fillRect(x - 4 * scale, y, 8 * scale, 16 * scale);
-    // glow
-    const glow = ctx.createRadialGradient(x, y - 8 * scale, 0, x, y - 8 * scale, 80 * scale);
-    glow.addColorStop(0, `rgba(255, 180, 80, ${0.5 * flick})`);
-    glow.addColorStop(1, 'rgba(255, 120, 0, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(x - 80 * scale, y - 80 * scale, 160 * scale, 160 * scale);
-    // flame
-    ctx.save();
-    ctx.shadowColor = '#ff8800';
-    ctx.shadowBlur = 20 * scale;
-    ctx.fillStyle = '#ffaa30';
-    ctx.beginPath();
-    ctx.ellipse(x, y - 8 * scale, 5 * scale, 12 * scale * flick, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffe680';
-    ctx.beginPath();
-    ctx.ellipse(x, y - 8 * scale, 2.5 * scale, 6 * scale * flick, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  _drawVignette(ctx, w, h) {
-    const v = ctx.createRadialGradient(w / 2, h / 2 - 50, 150, w / 2, h / 2, 600);
-    v.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    v.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
-    ctx.fillStyle = v;
-    ctx.fillRect(0, 0, w, h);
-
-    if (this.damageFlash > 0) {
-      ctx.fillStyle = `rgba(180, 20, 20, ${this.damageFlash * 0.25})`;
-      ctx.fillRect(0, 0, w, h);
-    }
-  }
-
-  _drawEnemies(ctx) {
-    const sorted = [...this.enemies]
-      .filter(e => e.alive || e.dying)
-      .sort((a, b) => b.x - a.x);
-
-    for (const enemy of sorted) {
-      const proj = this._project(enemy);
-      if (proj.near <= 0) continue;
-
-      // shadow on ground
-      ctx.save();
-      ctx.globalAlpha = 0.4 * proj.near;
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.ellipse(proj.sx, proj.sy + proj.appSize * 0.42, proj.appSize * 0.35, proj.appSize * 0.1, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      ctx.save();
-      if (enemy.hitFlash > 0) {
-        ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 30) * 0.5;
-      }
-      enemy.def.draw(ctx, proj.sx, proj.sy, proj.appSize, enemy.hp, enemy.maxHp);
-      ctx.restore();
-
-      this._drawEnemyLabel(ctx, enemy, proj);
-    }
-  }
-
-  _drawEnemyLabel(ctx, enemy, proj) {
-    if (!enemy.romaji) return;
-
-    const fontKana = Math.max(11, Math.min(18, 11 + proj.near * 7));
-    const fontRoma = Math.max(12, Math.min(20, 12 + proj.near * 8));
-    const labelY = proj.sy - proj.appSize * 0.45 - 20;
+  _drawEnemyLabel(ctx, enemy, sp) {
+    const depthScale = Math.max(0.5, Math.min(1.4, 1 / (Math.abs(sp.z) + 0.6)));
+    const fontKana = 14 * depthScale;
+    const fontRoma = 16 * depthScale;
+    const labelY = sp.y;
 
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // kana (top)
+    // kana on top
     ctx.font = `bold ${fontKana}px 'Segoe UI', sans-serif`;
     const kanaW = ctx.measureText(enemy.currentWord).width;
-    ctx.fillStyle = 'rgba(10, 12, 16, 0.85)';
-    ctx.fillRect(proj.sx - kanaW / 2 - 6, labelY - fontKana / 2 - 2, kanaW + 12, fontKana + 4);
+    ctx.fillStyle = 'rgba(8, 10, 14, 0.85)';
+    ctx.fillRect(sp.x - kanaW / 2 - 6, labelY - fontKana / 2 - 2, kanaW + 12, fontKana + 4);
     ctx.fillStyle = enemy.targeted ? '#fbbf24' : '#ffffff';
-    ctx.shadowColor = enemy.targeted ? '#fbbf24' : 'transparent';
-    ctx.shadowBlur = enemy.targeted ? 6 : 0;
-    ctx.fillText(enemy.currentWord, proj.sx, labelY);
+    if (enemy.targeted) {
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 8;
+    }
+    ctx.fillText(enemy.currentWord, sp.x, labelY);
     ctx.shadowBlur = 0;
 
-    // romaji (below kana)
+    // romaji below
     const romaji = enemy.romaji.displayRomaji;
     const confirmed = enemy.romaji.confirmed;
     const remaining = romaji.slice(confirmed.length);
     ctx.font = `bold ${fontRoma}px 'Courier New', monospace`;
     const romaW = ctx.measureText(romaji).width;
     const romaY = labelY + fontKana / 2 + fontRoma / 2 + 4;
-
-    // background
     const bgColor = enemy.targeted ? 'rgba(70, 100, 180, 0.95)' : 'rgba(30, 50, 90, 0.85)';
     ctx.fillStyle = bgColor;
     const pad = 6;
-    const bgX = proj.sx - romaW / 2 - pad;
-    const bgY = romaY - fontRoma / 2 - 2;
-    ctx.fillRect(bgX, bgY, romaW + pad * 2, fontRoma + 4);
-
+    ctx.fillRect(sp.x - romaW / 2 - pad, romaY - fontRoma / 2 - 2, romaW + pad * 2, fontRoma + 4);
     ctx.textAlign = 'left';
-    const startX = proj.sx - romaW / 2;
+    const startX = sp.x - romaW / 2;
     ctx.fillStyle = '#86efac';
     ctx.fillText(confirmed, startX, romaY);
     const cw = ctx.measureText(confirmed).width;
     ctx.fillStyle = '#ffffff';
     ctx.fillText(remaining, startX + cw, romaY);
-
     ctx.restore();
-  }
-
-  _drawArrows(ctx) {
-    for (const arrow of this.arrows) {
-      if (!arrow.alive) continue;
-      let tx, ty, tScale;
-      if (arrow.enemy) {
-        const proj = this._project(arrow.enemy);
-        tx = proj.sx;
-        ty = proj.sy;
-        tScale = proj.scale;
-      } else {
-        tx = this.vp.x;
-        ty = this.vp.y;
-        tScale = 0.2;
-      }
-      const p = arrow.progress;
-      const ax = arrow.startX + (tx - arrow.startX) * p;
-      const ay = arrow.startY + (ty - arrow.startY) * p;
-      const scale = 1.0 - p * (1 - tScale);
-      const angle = Math.atan2(ty - ay, tx - ax);
-
-      ctx.save();
-      ctx.translate(ax, ay);
-      ctx.rotate(angle);
-      const len = 60 * scale;
-      const head = 12 * scale;
-      // shaft
-      ctx.strokeStyle = '#d4a017';
-      ctx.lineWidth = Math.max(1.5, 3 * scale);
-      ctx.beginPath();
-      ctx.moveTo(-len / 2, 0);
-      ctx.lineTo(len / 2, 0);
-      ctx.stroke();
-      // arrowhead
-      ctx.fillStyle = '#e5e7eb';
-      ctx.beginPath();
-      ctx.moveTo(len / 2 + head, 0);
-      ctx.lineTo(len / 2, -head * 0.4);
-      ctx.lineTo(len / 2, head * 0.4);
-      ctx.closePath();
-      ctx.fill();
-      // fletching
-      ctx.fillStyle = '#cc3333';
-      ctx.beginPath();
-      ctx.moveTo(-len / 2, 0);
-      ctx.lineTo(-len / 2 - head * 0.8, -head * 0.5);
-      ctx.lineTo(-len / 2 + head * 0.2, 0);
-      ctx.lineTo(-len / 2 - head * 0.8, head * 0.5);
-      ctx.closePath();
-      ctx.fill();
-      // trail glow
-      ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 12;
-      ctx.strokeStyle = `rgba(251, 191, 36, ${0.4 * (1 - p)})`;
-      ctx.lineWidth = 2 * scale;
-      ctx.beginPath();
-      ctx.moveTo(-len / 2, 0);
-      ctx.lineTo(-len / 2 - 30 * scale, 0);
-      ctx.stroke();
-      ctx.restore();
-    }
   }
 
   _drawBow(ctx) {
     const recoil = this.bowRecoil;
     const recoilOffset = recoil * 14;
 
-    // bow geometry: diagonal from upper-left tip down to off-screen lower-right
     const topTip = { x: 670 + recoilOffset, y: 60 - recoilOffset * 0.3 };
     const botTip = { x: 1050 + recoilOffset, y: 720 - recoilOffset * 0.3 };
     const grip = { x: 880 + recoilOffset, y: 410 - recoilOffset * 0.3 };
-    // bow's curvature: control point pushed to the RIGHT (convex right)
     const bulge = 60 - recoil * 25;
     const ctrl = { x: grip.x + bulge, y: grip.y };
 
     ctx.save();
     ctx.lineCap = 'round';
 
-    // outer dark wood (back of bow)
     ctx.strokeStyle = '#2a1606';
     ctx.lineWidth = 18;
     ctx.beginPath();
@@ -820,7 +1235,6 @@ class Game {
     ctx.quadraticCurveTo(ctrl.x, ctrl.y, botTip.x, botTip.y);
     ctx.stroke();
 
-    // inner mid-tone wood
     ctx.strokeStyle = '#5d3115';
     ctx.lineWidth = 11;
     ctx.beginPath();
@@ -828,7 +1242,6 @@ class Game {
     ctx.quadraticCurveTo(ctrl.x - 2, ctrl.y, botTip.x, botTip.y);
     ctx.stroke();
 
-    // wood grain highlight strip on outer (convex) side
     ctx.strokeStyle = '#8a4f1f';
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -836,14 +1249,12 @@ class Game {
     ctx.quadraticCurveTo(ctrl.x + 3, ctrl.y, botTip.x + 3, botTip.y);
     ctx.stroke();
 
-    // tips (carved horn caps)
     ctx.fillStyle = '#1a0e04';
     ctx.beginPath();
     ctx.arc(topTip.x, topTip.y, 7, 0, Math.PI * 2);
     ctx.arc(botTip.x, botTip.y, 7, 0, Math.PI * 2);
     ctx.fill();
 
-    // bowstring (taut line between tips, slightly pulled toward grip when nocked)
     const drawback = 1 - recoil;
     const stringMid = {
       x: (topTip.x + botTip.x) / 2 - drawback * 30,
@@ -857,7 +1268,6 @@ class Game {
     ctx.lineTo(botTip.x, botTip.y);
     ctx.stroke();
 
-    // nocked arrow (visible when not recoiling; points forward-left toward enemies)
     if (recoil < 0.4) {
       const arrowAlpha = 1 - recoil / 0.4;
       ctx.save();
@@ -865,14 +1275,12 @@ class Game {
       const arrowStart = stringMid;
       const arrowEnd = { x: arrowStart.x - 360, y: arrowStart.y - 110 };
       const ang = Math.atan2(arrowEnd.y - arrowStart.y, arrowEnd.x - arrowStart.x);
-      // shaft
       ctx.strokeStyle = '#d4a017';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
       ctx.moveTo(arrowStart.x, arrowStart.y);
       ctx.lineTo(arrowEnd.x, arrowEnd.y);
       ctx.stroke();
-      // arrowhead
       ctx.save();
       ctx.translate(arrowEnd.x, arrowEnd.y);
       ctx.rotate(ang);
@@ -884,7 +1292,6 @@ class Game {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
-      // fletching (near nock)
       ctx.save();
       ctx.translate(arrowStart.x, arrowStart.y);
       ctx.rotate(ang);
@@ -900,15 +1307,13 @@ class Game {
       ctx.restore();
     }
 
-    // leather grip wrap at hand position
+    // leather grip
     ctx.save();
     ctx.translate(grip.x, grip.y);
-    // angle along the bow line (tangent direction at grip)
     const tang = Math.atan2(botTip.y - topTip.y, botTip.x - topTip.x);
     ctx.rotate(tang);
     ctx.fillStyle = '#15080a';
     ctx.fillRect(-12, -50, 24, 100);
-    // wrap stripes
     ctx.strokeStyle = '#3a1f0a';
     ctx.lineWidth = 1.5;
     for (let i = -42; i < 45; i += 8) {
@@ -919,33 +1324,28 @@ class Game {
     }
     ctx.restore();
 
-    // hand holding the grip
+    // hand
     ctx.save();
     ctx.translate(grip.x + 8, grip.y + 4);
     ctx.rotate(tang - 0.1);
-    // palm
     ctx.fillStyle = '#d8a878';
     ctx.beginPath();
     ctx.ellipse(0, 0, 32, 42, 0, 0, Math.PI * 2);
     ctx.fill();
-    // palm shading
     ctx.fillStyle = 'rgba(120, 70, 30, 0.35)';
     ctx.beginPath();
     ctx.ellipse(-12, 5, 18, 30, 0.3, 0, Math.PI * 2);
     ctx.fill();
-    // fingers wrapped around grip (4 small bumps on the far side of grip)
     ctx.fillStyle = '#c89868';
     for (let i = -22; i <= 22; i += 12) {
       ctx.beginPath();
       ctx.ellipse(-20, i, 7, 9, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    // thumb on near side
     ctx.fillStyle = '#d8a878';
     ctx.beginPath();
     ctx.ellipse(8, -22, 10, 18, 0.3, 0, Math.PI * 2);
     ctx.fill();
-    // knuckle highlights
     ctx.fillStyle = '#c08858';
     for (let i = -16; i <= 16; i += 10) {
       ctx.beginPath();
@@ -954,7 +1354,7 @@ class Game {
     }
     ctx.restore();
 
-    // forearm extending off bottom-right of screen
+    // forearm extending off bottom-right
     ctx.save();
     ctx.fillStyle = '#1f3a18';
     ctx.beginPath();
@@ -964,7 +1364,6 @@ class Game {
     ctx.lineTo(1100, 560);
     ctx.closePath();
     ctx.fill();
-    // sleeve cuff (leather band)
     ctx.fillStyle = '#5a3416';
     ctx.beginPath();
     ctx.moveTo(grip.x + 30, grip.y + 30);
@@ -973,15 +1372,7 @@ class Game {
     ctx.lineTo(grip.x + 60, grip.y + 70);
     ctx.closePath();
     ctx.fill();
-    // sleeve stitching
-    ctx.strokeStyle = '#3a1f0a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(grip.x + 35, grip.y + 38);
-    ctx.lineTo(grip.x + 50, grip.y + 78);
-    ctx.stroke();
-    // sleeve shading on lower edge
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath();
     ctx.moveTo(grip.x - 10, grip.y + 50);
     ctx.lineTo(1100, 720);
@@ -994,27 +1385,14 @@ class Game {
     ctx.restore();
   }
 
-  _getAimAngle() {
-    if (this.targetEnemy && this.targetEnemy.alive) {
-      const proj = this._project(this.targetEnemy);
-      const dx = proj.sx - this.bowAnchor.x;
-      const dy = proj.sy - this.bowAnchor.y;
-      const mag = Math.sqrt(dx * dx + dy * dy);
-      return { x: dx / mag, y: dy / mag };
-    }
-    return { x: -0.5, y: -0.5 };
-  }
-
   _drawHUD(ctx, w) {
     ctx.save();
-    // top bar with subtle gradient
     const tg = ctx.createLinearGradient(0, 0, 0, 42);
     tg.addColorStop(0, 'rgba(0, 0, 0, 0.85)');
     tg.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
     ctx.fillStyle = tg;
     ctx.fillRect(0, 0, w, 42);
 
-    // HP hearts (top left)
     ctx.font = "bold 14px 'Segoe UI', sans-serif";
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
@@ -1030,20 +1408,17 @@ class Game {
       this._drawHeart(ctx, hx, hy, heartSize, i < this.wallHp);
     }
 
-    // wave (center)
     ctx.textAlign = 'center';
     ctx.fillStyle = '#e5e7eb';
     ctx.font = "bold 16px 'Segoe UI', sans-serif";
     ctx.fillText(`WAVE ${this.currentWave}/${this.totalWaves}`, w / 2, 21);
 
-    // score (top right)
     ctx.textAlign = 'right';
     ctx.fillStyle = '#fbbf24';
     ctx.fillText('SCORE', w - 90, 21);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(this.score.toLocaleString(), w - 14, 21);
 
-    // combo
     if (this.combo >= 3) {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#f97316';
@@ -1100,38 +1475,30 @@ class Game {
     if (this.targetEnemy && this.targetEnemy.alive && this.targetEnemy.romaji) {
       const enemy = this.targetEnemy;
       const romaji = enemy.romaji;
-
       ctx.font = "bold 14px 'Segoe UI', sans-serif";
       ctx.textAlign = 'left';
       ctx.fillStyle = '#9ca3af';
       ctx.fillText(`TARGET: ${enemy.def.name}`, 20, areaY + 25);
-
       if (enemy.maxHp > 1) {
         ctx.fillStyle = '#fbbf24';
         ctx.fillText(`HP ${enemy.hp}/${enemy.maxHp}`, 200, areaY + 25);
       }
-
       ctx.font = "bold 28px 'Segoe UI', sans-serif";
       ctx.textAlign = 'center';
       ctx.fillStyle = '#fbbf24';
       ctx.fillText(enemy.currentWord, w / 2, areaY + 55);
-
       const display = romaji.displayRomaji;
       const confirmed = romaji.confirmed;
       const remaining = display.slice(confirmed.length);
-
       ctx.font = "bold 24px 'Courier New', monospace";
       const fullW = ctx.measureText(display).width;
       const startX = w / 2 - fullW / 2;
-
       ctx.textAlign = 'left';
       ctx.fillStyle = '#86efac';
       ctx.fillText(confirmed, startX, areaY + 90);
-
       const confW = ctx.measureText(confirmed).width;
       ctx.fillStyle = '#9ca3af';
       ctx.fillText(remaining, startX + confW, areaY + 90);
-
       ctx.fillStyle = '#86efac';
       ctx.fillRect(startX + confW, areaY + 94, 2, 4);
     } else if (this._pendingBuffer) {
@@ -1157,10 +1524,25 @@ class Game {
     ctx.fillText(`撃破: ${this.kills}体  正確率: ${acc}%`, w - 20, areaY + 100);
   }
 
+  _drawVignette(ctx, w, h) {
+    const v = ctx.createRadialGradient(w / 2, h / 2 - 50, 220, w / 2, h / 2, 600);
+    v.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    v.addColorStop(1, 'rgba(0, 0, 0, 0.65)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, w, h);
+    if (this.damageFlash > 0) {
+      ctx.fillStyle = `rgba(180, 20, 20, ${this.damageFlash * 0.25})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+
   destroy() {
     this.running = false;
     document.removeEventListener('keydown', this._boundKeyHandler);
-    this.canvas.removeEventListener('click', this._boundClickHandler);
+    this.canvas3d.removeEventListener('click', this._boundClickHandler);
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
   }
 }
 

@@ -14,11 +14,14 @@ function showScreen(id) {
 
 function startGame(difficulty) {
   showScreen('game-screen');
-  const canvas = document.getElementById('gameCanvas');
-  canvas.width = 1000;
-  canvas.height = 600;
+  const canvas3d = document.getElementById('gameCanvas3d');
+  const canvas2d = document.getElementById('gameCanvas2d');
+  canvas3d.width = 1000;
+  canvas3d.height = 600;
+  canvas2d.width = 1000;
+  canvas2d.height = 600;
   if (currentGame) currentGame.destroy();
-  currentGame = new Game(canvas, difficulty, wordsData, onGameEnd);
+  currentGame = new Game(canvas3d, canvas2d, difficulty, wordsData, onGameEnd);
 }
 
 function onGameEnd(result) {

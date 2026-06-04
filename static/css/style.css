@@ -178,10 +178,25 @@ body {
   background: #0c1a0c;
 }
 
-#gameCanvas {
-  display: block;
+#game-canvas-wrap {
+  position: relative;
+  width: 1000px;
+  height: 600px;
   max-width: 100%;
   max-height: 100%;
+}
+
+#gameCanvas3d, #gameCanvas2d {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1000px;
+  height: 600px;
+  display: block;
+}
+
+#gameCanvas2d {
+  pointer-events: none;
 }
 
 /* Result Screen */
