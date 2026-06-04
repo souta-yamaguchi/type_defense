@@ -828,9 +828,12 @@ class Game {
     const t = enemy.type;
     const g = new THREE.Group();
     if (t === 'slime') {
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0x4ade80, emissive: 0x10401a, emissiveIntensity: 0.5,
-        roughness: 0.3, metalness: 0.1
+      const bodyMat = new THREE.MeshPhysicalMaterial({
+        color: 0x4ade80, emissive: 0x10501e, emissiveIntensity: 0.55,
+        roughness: 0.15, metalness: 0.0,
+        transmission: 0.4, thickness: 0.6,
+        clearcoat: 0.8, clearcoatRoughness: 0.1,
+        ior: 1.3
       });
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.45, 24, 20), bodyMat);
       body.scale.set(1.1, 0.85, 1.1);
@@ -915,44 +918,98 @@ class Game {
       g.userData.scale = 1.05;
     } else if (t === 'wolf') {
       const furMat = new THREE.MeshStandardMaterial({
-        color: 0x7a8a98, emissive: 0x202830, emissiveIntensity: 0.35,
-        roughness: 0.9, metalness: 0
+        color: 0x6a7888, emissive: 0x1a222a, emissiveIntensity: 0.3,
+        roughness: 0.85, metalness: 0, flatShading: true
       });
-      // body
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.45, 1.1), furMat);
+      const furMatDark = new THREE.MeshStandardMaterial({
+        color: 0x4a5868, emissive: 0x10181a, emissiveIntensity: 0.25,
+        roughness: 0.9, flatShading: true
+      });
+      // body (rounded)
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), furMat);
+      body.scale.set(1.0, 0.75, 1.4);
       body.position.y = 0.55;
       g.add(body);
-      // head
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), furMat);
-      head.position.set(0, 0.7, 0.7);
+      // back ridge (darker spine)
+      const ridge = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.04, 0.8, 8), furMatDark);
+      ridge.position.set(0, 0.85, 0.2);
+      ridge.rotation.x = Math.PI / 2;
+      g.add(ridge);
+      // chest
+      const chest = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10), furMat);
+      chest.scale.set(0.9, 0.9, 0.7);
+      chest.position.set(0, 0.55, 0.45);
+      g.add(chest);
+      // head (more wolf-shaped)
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 12), furMat);
+      head.scale.set(0.95, 0.95, 1.15);
+      head.position.set(0, 0.75, 0.78);
       g.add(head);
       // snout
-      const snoutMat = new THREE.MeshStandardMaterial({ color: 0x4a5060, roughness: 1 });
-      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.35), snoutMat);
-      snout.position.set(0, 0.6, 1.0);
+      const snoutMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 1 });
+      const snout = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.35, 8), snoutMat);
+      snout.rotation.x = Math.PI / 2;
+      snout.position.set(0, 0.65, 1.05);
       g.add(snout);
-      // ears
-      const earGeo = new THREE.ConeGeometry(0.08, 0.2, 4);
+      // nose
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.3 }));
+      nose.position.set(0, 0.66, 1.22);
+      g.add(nose);
+      // ears (triangular wolf ears)
+      const earMat = new THREE.MeshStandardMaterial({ color: 0x5a6878, roughness: 0.9, side: THREE.DoubleSide });
+      const earShape = new THREE.Shape();
+      earShape.moveTo(0, 0);
+      earShape.lineTo(0.1, 0.22);
+      earShape.lineTo(-0.05, 0.05);
+      earShape.lineTo(0, 0);
+      const earGeo = new THREE.ShapeGeometry(earShape);
       for (const side of [-1, 1]) {
-        const ear = new THREE.Mesh(earGeo, furMat);
-        ear.position.set(side * 0.18, 1.0, 0.65);
+        const ear = new THREE.Mesh(earGeo, earMat);
+        ear.position.set(side * 0.15, 0.95, 0.65);
+        ear.rotation.x = -0.2;
+        ear.rotation.z = side * 0.2;
         g.add(ear);
       }
-      // legs
-      const legGeo = new THREE.BoxGeometry(0.16, 0.4, 0.16);
+      // legs (cylindrical)
+      const legGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.45, 8);
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x4a5868, roughness: 0.9 });
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        const leg = new THREE.Mesh(legGeo, furMat);
-        leg.position.set(sx * 0.22, 0.2, sz * 0.4);
+        const leg = new THREE.Mesh(legGeo, legMat);
+        leg.position.set(sx * 0.22, 0.22, sz * 0.45);
         g.add(leg);
+        // paw
+        const paw = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), legMat);
+        paw.scale.set(1, 0.5, 1.2);
+        paw.position.set(sx * 0.22, 0.05, sz * 0.45);
+        g.add(paw);
       }
-      // eyes
+      // tail (curved)
+      const tailMat = furMat;
+      for (let i = 0; i < 4; i++) {
+        const seg = new THREE.Mesh(new THREE.SphereGeometry(0.08 - i * 0.012, 8, 6), tailMat);
+        seg.position.set(0, 0.6 + i * 0.05, -0.55 - i * 0.1);
+        g.add(seg);
+      }
+      // eyes (glowing yellow)
       const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
       for (const side of [-1, 1]) {
-        const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeMat);
-        e.position.set(side * 0.13, 0.78, 0.95);
-        g.add(e);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), eyeMat);
+        eye.position.set(side * 0.13, 0.82, 1.0);
+        g.add(eye);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), new THREE.MeshBasicMaterial({ color: 0x0a0a0a }));
+        pupil.position.set(side * 0.13, 0.82, 1.04);
+        g.add(pupil);
       }
-      g.userData.scale = 0.9;
+      // teeth (bared)
+      const teethMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      for (let i = -2; i <= 2; i++) {
+        if (i === 0) continue;
+        const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.04, 4), teethMat);
+        tooth.position.set(i * 0.025, 0.58, 1.18);
+        tooth.rotation.x = Math.PI;
+        g.add(tooth);
+      }
+      g.userData.scale = 0.95;
     } else if (t === 'dragon') {
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0xef4444, emissive: 0x601010, emissiveIntensity: 0.6,
