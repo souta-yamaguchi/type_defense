@@ -128,7 +128,8 @@ class Game {
       this.composer = new window.EffectComposer(this.renderer);
       this.composer.setSize(1000, 600);
       this.composer.addPass(new window.RenderPass(this.scene, this.camera));
-      const bloom = new window.UnrealBloomPass(new THREE.Vector2(1000, 600), 0.85, 0.35, 0.25);
+      // (strength, radius, threshold) — threshold filters out non-emissive surfaces
+      const bloom = new window.UnrealBloomPass(new THREE.Vector2(1000, 600), 0.65, 0.55, 0.75);
       this.composer.addPass(bloom);
     }
   }
@@ -286,6 +287,10 @@ class Game {
 
     // ---- 3D BOW ATTACHED TO CAMERA ----
     this._buildBow3D();
+    // small warm "hand light" attached to camera so the bow + hand aren't pitch black
+    const handLight = new THREE.PointLight(0xffc080, 0.55, 2.5, 1.8);
+    handLight.position.set(0.25, -0.1, -0.4);
+    this.camera.add(handLight);
     scene.add(this.camera);
 
     // ---- EMBER PARTICLES ----
@@ -590,22 +595,20 @@ class Game {
     const bowCurve = new THREE.CatmullRomCurve3(bowCurvePts);
     const bowGeo = new THREE.TubeGeometry(bowCurve, 64, 0.018, 8, false);
     const woodMat = new THREE.MeshStandardMaterial({
-      color: 0x9a5520,
-      roughness: 0.5,
-      metalness: 0.08,
-      emissive: 0x2a1408,
-      emissiveIntensity: 0.15
+      color: 0x8a4818,
+      roughness: 0.55,
+      metalness: 0.06
     });
     const bowMesh = new THREE.Mesh(bowGeo, woodMat);
     bow.add(bowMesh);
 
     // wood grain highlight strip (lighter outer band)
-    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.01, 6, false);
+    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.008, 6, false);
     const grainMat = new THREE.MeshStandardMaterial({
-      color: 0xc88040, roughness: 0.6, emissive: 0x4a2410, emissiveIntensity: 0.25
+      color: 0xb87030, roughness: 0.65
     });
     const grain = new THREE.Mesh(grainGeo, grainMat);
-    grain.position.x = 0.018;
+    grain.position.x = 0.015;
     bow.add(grain);
 
     // horn tips (carved at both ends)
@@ -1390,14 +1393,11 @@ class Game {
         }
       } else if (enemy.type === 'boss') {
         enemy.mesh.position.y = Math.sin(time * 1.5 + enemy.bobOffset) * 0.15;
-        enemy.mesh.rotation.y += dt * 0.3;
         const pulse = 0.8 + Math.sin(time * 3) * 0.4;
         if (enemy.mesh.userData.glow) enemy.mesh.userData.glow.intensity = 2.5 + pulse;
       }
-      // face the camera (rotate toward player on +Z)
-      if (enemy.type !== 'boss') {
-        enemy.mesh.lookAt(this.camera.position.x, enemy.mesh.position.y, this.camera.position.z);
-      }
+      // face the camera (Y axis rotation only, keep upright)
+      enemy.mesh.lookAt(this.camera.position.x, enemy.mesh.position.y, this.camera.position.z);
       // hit flash
       if (enemy.hitFlash > 0) {
         const flash = 0.5 + Math.sin(Date.now() / 30) * 0.5;
