@@ -588,19 +588,21 @@ class Game {
     // toward the action area (screen center).
     const bow = new THREE.Group();
 
-    // ---- BOW WOOD: curve in XY plane bulging +X ----
+    // ---- BOW WOOD: curve in XY plane bulging -X (toward target/scene center) ----
+    // Anatomy: bow's BACK (convex) faces target = -X direction (toward screen center
+    // since bow is positioned on right of screen). STRING is on +X (toward archer).
     const bowCurvePts = [];
     const N = 32;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      const ang = (t - 0.5) * Math.PI * 0.78; // ~ -70° to +70°
+      const ang = (t - 0.5) * Math.PI * 0.78;
       const r = 0.45;
-      // Recurve: extra +X push at tips (slight S-curve)
-      const tipRecurve = Math.pow(Math.abs(t - 0.5) * 2, 5) * -0.05;
+      // Recurve: tips curve slightly +X (back toward archer at extremes)
+      const tipRecurve = Math.pow(Math.abs(t - 0.5) * 2, 5) * 0.05;
       bowCurvePts.push(new THREE.Vector3(
-        Math.cos(ang) * r * 0.42 + tipRecurve,  // X: bulge +X
+        -Math.cos(ang) * r * 0.42 + tipRecurve,  // X: bulge -X (toward target)
         -Math.sin(ang) * r * 1.5,                 // Y: top to bottom
-        0                                          // Z: 0 (flat XY)
+        0                                          // Z: flat XY
       ));
     }
     const bowCurve = new THREE.CatmullRomCurve3(bowCurvePts);
@@ -612,8 +614,8 @@ class Game {
     });
     bow.add(new THREE.Mesh(bowGeo, woodMat));
 
-    // Wood grain highlight on outer (convex) side
-    const grainPts = bowCurvePts.map(p => new THREE.Vector3(p.x + 0.012, p.y, p.z));
+    // Wood grain highlight on outer (convex = -X side, toward target)
+    const grainPts = bowCurvePts.map(p => new THREE.Vector3(p.x - 0.012, p.y, p.z));
     const grainCurve = new THREE.CatmullRomCurve3(grainPts);
     const grainGeo = new THREE.TubeGeometry(grainCurve, 96, 0.01, 6, false);
     const grainMat = new THREE.MeshStandardMaterial({
@@ -634,9 +636,9 @@ class Game {
     botTipMesh.position.copy(botTipPos);
     bow.add(botTipMesh);
 
-    // ---- BOWSTRING: top tip → midpoint (-X side) → bottom tip ----
+    // ---- BOWSTRING: runs along +X side (archer side, opposite of -X convex) ----
     const stringMidInit = new THREE.Vector3(
-      -0.05,  // pulled toward archer (default lightly drawn)
+      0.05,  // string mid on +X (archer side); drawn back further +X
       (topTipPos.y + botTipPos.y) / 2,
       0
     );
@@ -658,7 +660,7 @@ class Game {
 
     // ---- LEATHER GRIP at middle of bow (where hand holds) ----
     // Grip is a vertical cylinder centered at bowCurvePts[N/2] (middle of curve).
-    const gripCenter = bowCurvePts[Math.floor(N / 2)];  // (~0.19, 0, 0)
+    const gripCenter = bowCurvePts[Math.floor(N / 2)];  // (~-0.19, 0, 0)
     const gripMat = new THREE.MeshStandardMaterial({
       color: 0x180a08, roughness: 0.95
     });
@@ -681,9 +683,8 @@ class Game {
     }
 
     // ---- HAND wrapping the grip ----
-    // Palm: on the -X side of grip (toward camera/archer's view of grip).
-    // Fingers: wrap around to +X side (outer side of bow).
-    // Color kept moderate so the bloom pass doesn't pick it up.
+    // Bow's convex is at -X (target side). Hand grips from +X side (archer side).
+    // Palm visible on +X (toward archer/screen edge), fingers wrap around to -X side.
     const handMat = new THREE.MeshStandardMaterial({
       color: 0x8a5c40, roughness: 0.85, metalness: 0
     });
@@ -691,53 +692,52 @@ class Game {
       new THREE.SphereGeometry(0.07, 16, 14), handMat
     );
     palm.scale.set(0.65, 1.4, 1.0);
-    palm.position.set(gripCenter.x - 0.06, 0, 0.02);
+    palm.position.set(gripCenter.x + 0.06, 0, 0.02);
     bow.add(palm);
-    // 4 fingers wrapped around grip to the +X side
+    // 4 fingers wrapped around grip to the -X (outer/target) side
     for (let i = 0; i < 4; i++) {
       const finger = new THREE.Mesh(
         new THREE.CapsuleGeometry(0.014, 0.06, 4, 8), handMat
       );
-      finger.position.set(gripCenter.x + 0.025, -0.05 + i * 0.025, 0);
-      finger.rotation.z = -Math.PI / 2.3;  // horizontal, wrapping
+      finger.position.set(gripCenter.x - 0.025, -0.05 + i * 0.025, 0);
+      finger.rotation.z = Math.PI / 2.3;
       bow.add(finger);
-      // fingernails would be too detailed, skip
     }
-    // Thumb: comes from -X side (camera), wraps over the top toward +X
+    // Thumb: comes from +X (archer) side, wraps over top
     const thumb = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.016, 0.05, 4, 8), handMat
     );
-    thumb.position.set(gripCenter.x - 0.04, -0.04, 0.04);
-    thumb.rotation.z = -Math.PI / 3;
-    thumb.rotation.y = -0.4;
+    thumb.position.set(gripCenter.x + 0.04, -0.04, 0.04);
+    thumb.rotation.z = Math.PI / 3;
+    thumb.rotation.y = 0.4;
     bow.add(thumb);
-    // Knuckles on the +X side (visible bumps)
+    // Knuckles on the -X (outer) side
     for (let i = 0; i < 4; i++) {
       const knuckle = new THREE.Mesh(
         new THREE.SphereGeometry(0.012, 8, 8), handMat
       );
-      knuckle.position.set(gripCenter.x + 0.06, -0.05 + i * 0.025, 0);
+      knuckle.position.set(gripCenter.x - 0.06, -0.05 + i * 0.025, 0);
       bow.add(knuckle);
     }
-    // Wrist cuff (leather band)
+    // Wrist cuff
     const cuffMat = new THREE.MeshStandardMaterial({
       color: 0x4a2a14, roughness: 1
     });
     const cuff = new THREE.Mesh(
       new THREE.CylinderGeometry(0.085, 0.09, 0.055, 14), cuffMat
     );
-    cuff.position.set(gripCenter.x - 0.1, -0.13, 0.01);
-    cuff.rotation.z = -0.35;
+    cuff.position.set(gripCenter.x + 0.1, -0.13, 0.01);
+    cuff.rotation.z = 0.35;
     bow.add(cuff);
-    // Forearm extending back toward camera lower-right
+    // Forearm extending back toward camera lower-right (off screen)
     const armMat = new THREE.MeshStandardMaterial({
       color: 0x1f3a18, roughness: 0.92
     });
     const arm = new THREE.Mesh(
       new THREE.CylinderGeometry(0.07, 0.09, 0.6, 14), armMat
     );
-    arm.position.set(gripCenter.x - 0.22, -0.32, 0.18);
-    arm.rotation.z = -0.55;
+    arm.position.set(gripCenter.x + 0.22, -0.32, 0.18);
+    arm.rotation.z = 0.55;
     arm.rotation.x = -0.5;
     bow.add(arm);
 
@@ -771,12 +771,8 @@ class Game {
       fin.rotation.z = (i / 3) * Math.PI * 2;
       arrowGroup.add(fin);
     }
-    // Position arrow: nock (fletching at +Z=0.32 local) at string midpoint
-    // (x=-0.05, y=0). Shaft length 0.75 / center → end at +0.375. So
-    // arrowGroup.z = -0.05 puts fletching end near string mid (z=-0.05+0.32=0.27)
-    // Actually nock needs to be AT string midpoint (Y=0, X=-0.05 in bow space).
-    // I'll position arrow group at string midpoint and have shaft extend forward.
-    arrowGroup.position.set(-0.05, 0, -0.32);
+    // Arrow nocked at string midpoint (now at +X=0.05, Y=0). Shaft extends -Z (forward).
+    arrowGroup.position.set(0.05, 0, -0.32);
     bow.add(arrowGroup);
     this._bowArrowGroup = arrowGroup;
 
@@ -809,11 +805,11 @@ class Game {
       this._bowArrowGroup.visible = recoil < 0.4;
     }
 
-    // Rebuild bowstring tube: midpoint pulled in -X (toward archer) when drawn
+    // Rebuild bowstring tube: midpoint pulled in +X (toward archer) when drawn
     const top = this._bowString.top;
     const bot = this._bowString.bot;
     const drawback = 1 - recoil;
-    const midX = -0.05 - drawback * 0.07; // more -X when drawn
+    const midX = 0.05 + drawback * 0.07; // more +X when drawn
     const midY = (top.y + bot.y) / 2;
     const newPath = new THREE.CatmullRomCurve3([
       top,
