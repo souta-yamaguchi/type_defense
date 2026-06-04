@@ -287,8 +287,9 @@ class Game {
 
     // ---- 3D BOW ATTACHED TO CAMERA ----
     this._buildBow3D();
-    // small warm "hand light" attached to camera so the bow + hand aren't pitch black
-    const handLight = new THREE.PointLight(0xffc080, 0.55, 2.5, 1.8);
+    // small warm "hand light" attached to camera so the bow + hand aren't pitch black.
+    // Kept low intensity so the bloom pass doesn't pick up the foreground.
+    const handLight = new THREE.PointLight(0xffc080, 0.22, 1.8, 2.0);
     handLight.position.set(0.25, -0.1, -0.4);
     this.camera.add(handLight);
     scene.add(this.camera);
@@ -576,24 +577,34 @@ class Game {
   _buildBow3D() {
     // Construct a recurve bow as a curved tube, attached to the camera so it
     // moves with the view. Positioned front-right, slightly low — typical FPV.
+    //
+    // Orientation: bow curve lies in the YZ plane and BULGES IN -Z
+    // (away from camera, toward the target). The bowstring runs from top tip
+    // to bottom tip through a midpoint that is on the +Z side (closer to
+    // camera, i.e. the archer's draw side). This matches real archery posture.
     const bow = new THREE.Group();
 
-    // bow wood: a 3D curve traced as a TubeGeometry
+    // bow wood: 3D curve traced as a TubeGeometry, in YZ plane.
+    // Recurve shape: deep belly with tips curving slightly back toward archer.
     const bowCurvePts = [];
-    const N = 20;
+    const N = 30;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      // parametric arch from top to bottom, bulging out (+X) at the middle
-      const ang = (t - 0.5) * Math.PI * 0.6; // -54° to +54°
-      const r = 0.42;
+      const ang = (t - 0.5) * Math.PI * 0.65; // -58° to +58°
+      const r = 0.45;
+      // base curve: tips at +Z 0.1, belly at -Z 0.22
+      const baseZ = -Math.cos(ang) * r * 0.55 + 0.07;
+      // recurve tips: at extreme ends, push tips slightly +Z (back toward archer)
+      const tipRecurve = Math.pow(Math.abs(t - 0.5) * 2, 4) * 0.08;
       bowCurvePts.push(new THREE.Vector3(
-        Math.cos(ang) * r * 0.3,  // bulge outward (positive X = right)
-        -Math.sin(ang) * r * 1.6,
-        0
+        0,
+        -Math.sin(ang) * r * 1.7,
+        baseZ + tipRecurve
       ));
     }
     const bowCurve = new THREE.CatmullRomCurve3(bowCurvePts);
-    const bowGeo = new THREE.TubeGeometry(bowCurve, 64, 0.018, 8, false);
+    // Variable-radius tube: thicker at grip (middle), thinner toward tips
+    const bowGeo = new THREE.TubeGeometry(bowCurve, 96, 0.026, 10, false);
     const woodMat = new THREE.MeshStandardMaterial({
       color: 0x8a4818,
       roughness: 0.55,
@@ -602,13 +613,13 @@ class Game {
     const bowMesh = new THREE.Mesh(bowGeo, woodMat);
     bow.add(bowMesh);
 
-    // wood grain highlight strip (lighter outer band)
-    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.008, 6, false);
+    // wood grain highlight strip (lighter outer band, on the convex side)
+    const grainGeo = new THREE.TubeGeometry(bowCurve, 96, 0.012, 6, false);
     const grainMat = new THREE.MeshStandardMaterial({
       color: 0xb87030, roughness: 0.65
     });
     const grain = new THREE.Mesh(grainGeo, grainMat);
-    grain.position.x = 0.015;
+    grain.position.z = -0.012; // slight outward (toward target) highlight
     bow.add(grain);
 
     // horn tips (carved at both ends)
@@ -622,13 +633,19 @@ class Game {
     botTip.position.copy(botTipPos);
     bow.add(botTip);
 
-    // bowstring as a tube so it actually shows up
+    // bowstring as a tube so it actually shows up (runs in YZ plane,
+    // midpoint is on +Z = archer's side when nocked/drawn)
     const stringMat = new THREE.MeshStandardMaterial({
       color: 0xf0e0b0, emissive: 0x504030, emissiveIntensity: 0.4, roughness: 0.6
     });
+    const stringMidInit = new THREE.Vector3(
+      0,
+      (topTipPos.y + botTipPos.y) / 2,
+      0.06  // pulled toward camera (default drawn position)
+    );
     const stringPath = new THREE.CatmullRomCurve3([
       topTipPos.clone(),
-      new THREE.Vector3((topTipPos.x + botTipPos.x) / 2 - 0.06, (topTipPos.y + botTipPos.y) / 2, 0),
+      stringMidInit,
       botTipPos.clone()
     ]);
     const stringTube = new THREE.Mesh(
@@ -644,56 +661,57 @@ class Game {
       bow
     };
 
-    // leather grip wrap at center (where hand holds)
+    // leather grip wrap at center (where hand holds). Grip is a vertical
+    // cylinder centered at the bow's middle (Y=0). Slightly +Z (toward camera)
+    // so it sits on the archer's side of the bow.
     const gripGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.13, 12);
     const gripMat = new THREE.MeshStandardMaterial({ color: 0x150806, roughness: 0.95 });
     const grip = new THREE.Mesh(gripGeo, gripMat);
-    grip.position.set(0.015, 0, 0);
-    // align grip with bow tangent (vertical here, since middle of curve is horizontal direction)
+    grip.position.set(0, 0, 0.015);
     bow.add(grip);
-    // leather wrap stitches
+    // leather wrap stitches (small torus bands wrapping the grip)
     const stitchMat = new THREE.MeshStandardMaterial({ color: 0x3a1f0a, roughness: 1 });
     for (let i = 0; i < 8; i++) {
       const stitch = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.003, 4, 12), stitchMat);
-      stitch.position.set(0.015, -0.055 + i * 0.015, 0);
+      stitch.position.set(0, -0.055 + i * 0.015, 0.015);
       stitch.rotation.x = Math.PI / 2;
       bow.add(stitch);
     }
 
     // ----- HAND holding the grip -----
+    // Hand is on the +Z side (archer's side) of the bow, wrapping around the grip.
     const handMat = new THREE.MeshStandardMaterial({
       color: 0xc89878, roughness: 0.7, metalness: 0
     });
     const palmGeo = new THREE.SphereGeometry(0.06, 16, 14);
     const palm = new THREE.Mesh(palmGeo, handMat);
-    palm.scale.set(1.0, 1.3, 0.7);
-    palm.position.set(0.05, 0, 0);
+    palm.scale.set(0.7, 1.3, 1.0);
+    palm.position.set(0, 0, 0.05);
     bow.add(palm);
-    // fingers wrapped on the far side of grip
+    // fingers wrapped on the far side (-Z, behind the grip)
     for (let i = 0; i < 4; i++) {
       const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.04, 4, 8), handMat);
-      finger.position.set(-0.018, -0.04 + i * 0.025, 0.005);
-      finger.rotation.z = 0.4;
+      finger.position.set(0.005, -0.04 + i * 0.025, -0.018);
+      finger.rotation.x = -0.4;
       bow.add(finger);
     }
-    // thumb on the near side wrapping over
+    // thumb on the +Z side (camera side) wrapping over
     const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.04, 4, 8), handMat);
-    thumb.position.set(0.045, -0.045, 0.02);
+    thumb.position.set(0.02, -0.045, 0.045);
+    thumb.rotation.x = 0.3;
     thumb.rotation.z = -0.3;
-    thumb.rotation.x = -0.3;
     bow.add(thumb);
     // wrist / cuff
     const cuffMat = new THREE.MeshStandardMaterial({ color: 0x3a2010, roughness: 1 });
     const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.075, 0.05, 12), cuffMat);
-    cuff.position.set(0.08, -0.08, 0);
-    cuff.rotation.z = 0.3;
+    cuff.position.set(0, -0.08, 0.08);
+    cuff.rotation.x = -0.3;
     bow.add(cuff);
-    // forearm (extends back toward camera, partially off-screen)
+    // forearm extending toward camera, partially off-screen lower-right
     const armMat = new THREE.MeshStandardMaterial({ color: 0x1f3a18, roughness: 0.9 });
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.5, 12), armMat);
-    arm.position.set(0.12, -0.2, 0.15);
-    arm.rotation.z = 0.6;
-    arm.rotation.x = -0.6;
+    arm.position.set(0, -0.2, 0.27);
+    arm.rotation.x = 0.6;
     bow.add(arm);
 
     // ----- NOCKED ARROW (visible when not firing) -----
@@ -717,14 +735,18 @@ class Game {
       fin.rotation.z = (i / 3) * Math.PI * 2;
       arrowGroup.add(fin);
     }
-    // position arrow on bow, pointing forward (-Z away from camera)
-    arrowGroup.position.set(0, 0, 0);
+    // Position arrow so its NOCK (fletching end at +Z) sits near the drawn
+    // bowstring midpoint (~ z=+0.08 in bow space). Shaft is 0.6 long centered
+    // at arrowGroup origin → fletching is at arrowGroup.z + 0.26.
+    arrowGroup.position.set(0, 0, -0.18);
     bow.add(arrowGroup);
     this._bowArrowGroup = arrowGroup;
 
-    // Position the whole bow in front-right of the camera (camera looks toward -Z)
-    bow.position.set(0.32, -0.22, -0.55);
-    bow.rotation.y = -0.15;
+    // Position the whole bow in front-right of the camera (camera looks toward -Z).
+    // Rotate around Y so the curve is visible from camera (not 100% edge-on)
+    // and so the arrow naturally aims slightly toward screen center.
+    bow.position.set(0.35, -0.22, -0.55);
+    bow.rotation.y = -0.78;
     bow.rotation.z = -0.05;
     // Add bow as child of camera so it moves with it
     this.camera.add(bow);
@@ -753,11 +775,11 @@ class Game {
     const top = this._bowString.top;
     const bot = this._bowString.bot;
     const drawback = 1 - recoil;
-    const midX = (top.x + bot.x) / 2 - drawback * 0.06;
     const midY = (top.y + bot.y) / 2;
+    const midZ = drawback * 0.08; // pulled toward camera (+Z) when drawn
     const newPath = new THREE.CatmullRomCurve3([
       top,
-      new THREE.Vector3(midX, midY, 0),
+      new THREE.Vector3(0, midY, midZ),
       bot
     ]);
     const newGeo = new THREE.TubeGeometry(newPath, 16, 0.003, 6, false);
