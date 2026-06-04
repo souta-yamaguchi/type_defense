@@ -590,20 +590,22 @@ class Game {
     const bowCurve = new THREE.CatmullRomCurve3(bowCurvePts);
     const bowGeo = new THREE.TubeGeometry(bowCurve, 64, 0.018, 8, false);
     const woodMat = new THREE.MeshStandardMaterial({
-      color: 0x6a3a14,
-      roughness: 0.55,
-      metalness: 0.05
+      color: 0x9a5520,
+      roughness: 0.5,
+      metalness: 0.08,
+      emissive: 0x2a1408,
+      emissiveIntensity: 0.15
     });
     const bowMesh = new THREE.Mesh(bowGeo, woodMat);
     bow.add(bowMesh);
 
-    // wood grain highlight strip
-    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.008, 6, false);
+    // wood grain highlight strip (lighter outer band)
+    const grainGeo = new THREE.TubeGeometry(bowCurve, 64, 0.01, 6, false);
     const grainMat = new THREE.MeshStandardMaterial({
-      color: 0x8a4f1f, roughness: 0.7, emissive: 0x3a1f08, emissiveIntensity: 0.2
+      color: 0xc88040, roughness: 0.6, emissive: 0x4a2410, emissiveIntensity: 0.25
     });
     const grain = new THREE.Mesh(grainGeo, grainMat);
-    grain.position.x = 0.015;
+    grain.position.x = 0.018;
     bow.add(grain);
 
     // horn tips (carved at both ends)
@@ -617,14 +619,27 @@ class Game {
     botTip.position.copy(botTipPos);
     bow.add(botTip);
 
-    // bowstring — line from top tip to bottom tip, pulled toward hand when nocked
-    const stringMat = new THREE.LineBasicMaterial({ color: 0xf0e0b0, linewidth: 1 });
-    const stringGeom = new THREE.BufferGeometry();
-    const stringPos = new Float32Array(9); // 3 points * 3 coords
-    stringGeom.setAttribute('position', new THREE.BufferAttribute(stringPos, 3));
-    const stringLine = new THREE.Line(stringGeom, stringMat);
-    bow.add(stringLine);
-    this._bowString = { geom: stringGeom, top: topTipPos.clone(), bot: botTipPos.clone(), positions: stringPos };
+    // bowstring as a tube so it actually shows up
+    const stringMat = new THREE.MeshStandardMaterial({
+      color: 0xf0e0b0, emissive: 0x504030, emissiveIntensity: 0.4, roughness: 0.6
+    });
+    const stringPath = new THREE.CatmullRomCurve3([
+      topTipPos.clone(),
+      new THREE.Vector3((topTipPos.x + botTipPos.x) / 2 - 0.06, (topTipPos.y + botTipPos.y) / 2, 0),
+      botTipPos.clone()
+    ]);
+    const stringTube = new THREE.Mesh(
+      new THREE.TubeGeometry(stringPath, 24, 0.003, 6, false),
+      stringMat
+    );
+    bow.add(stringTube);
+    this._bowString = {
+      mesh: stringTube,
+      mat: stringMat,
+      top: topTipPos.clone(),
+      bot: botTipPos.clone(),
+      bow
+    };
 
     // leather grip wrap at center (where hand holds)
     const gripGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.13, 12);
@@ -731,18 +746,20 @@ class Game {
       this._bowArrowGroup.visible = recoil < 0.4;
     }
 
-    // bowstring: 3 points (top tip → middle → bottom tip), middle pulled toward hand when not recoiled
-    const pos = this._bowString.positions;
+    // rebuild bowstring tube each frame so it follows the drawback animation
     const top = this._bowString.top;
     const bot = this._bowString.bot;
     const drawback = 1 - recoil;
-    // middle pulled back (positive X = away from bow's convex side)
     const midX = (top.x + bot.x) / 2 - drawback * 0.06;
     const midY = (top.y + bot.y) / 2;
-    pos[0] = top.x; pos[1] = top.y; pos[2] = top.z;
-    pos[3] = midX;  pos[4] = midY;  pos[5] = 0;
-    pos[6] = bot.x; pos[7] = bot.y; pos[8] = bot.z;
-    this._bowString.geom.attributes.position.needsUpdate = true;
+    const newPath = new THREE.CatmullRomCurve3([
+      top,
+      new THREE.Vector3(midX, midY, 0),
+      bot
+    ]);
+    const newGeo = new THREE.TubeGeometry(newPath, 16, 0.003, 6, false);
+    this._bowString.mesh.geometry.dispose();
+    this._bowString.mesh.geometry = newGeo;
   }
 
   _makeFlameSprite() {
