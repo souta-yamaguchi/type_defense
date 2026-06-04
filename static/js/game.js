@@ -1867,9 +1867,21 @@ class Game {
       this._altarLight.intensity = 2.5 * p;
     }
 
-    // subtle breathing camera
+    // subtle breathing camera (and cinematic intro on wave 1)
     const t = Date.now() / 1000;
-    this.camera.position.y = 1.7 + Math.sin(t * 0.7) * 0.02;
+    if (this.state === 'wave_intro' && this.currentWave === 1) {
+      // Cinematic fly-in: camera dollies forward from further back
+      const introDuration = 2.0;
+      const elapsed = introDuration - this.stateTimer;
+      const k = Math.max(0, Math.min(1, elapsed / introDuration));
+      const ease = 1 - Math.pow(1 - k, 2.2);
+      this.camera.position.z = 4.5 + (1.2 - 4.5) * ease;
+      this.camera.position.y = 2.4 + (1.7 - 2.4) * ease;
+      this.camera.lookAt(0, 1.2, -8);
+    } else {
+      this.camera.position.y = 1.7 + Math.sin(t * 0.7) * 0.02;
+      this.camera.position.z = 1.2;
+    }
 
     if (this.state === 'wave_intro') {
       this.stateTimer -= dt;
