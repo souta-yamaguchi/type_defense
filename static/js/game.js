@@ -120,8 +120,8 @@ class Game {
     this.scene.fog = new THREE.Fog(0x0a0408, 8, 40);
 
     this.camera = new THREE.PerspectiveCamera(62, 1000 / 600, 0.1, 100);
-    this.camera.position.set(0, 1.7, 1.0);
-    this.camera.lookAt(0, 1.5, -5);
+    this.camera.position.set(0, 1.5, 1.2);
+    this.camera.lookAt(0, 1.3, -5);
   }
 
   _buildScene() {
@@ -227,11 +227,11 @@ class Game {
     }
 
     // ---- LIGHTING ----
-    const ambient = new THREE.AmbientLight(0x1a1228, 0.55);
+    const ambient = new THREE.AmbientLight(0x2a1830, 0.7);
     scene.add(ambient);
 
     // soft fill from above
-    const fill = new THREE.HemisphereLight(0x2a1810, 0x0a0408, 0.3);
+    const fill = new THREE.HemisphereLight(0x4a2a1a, 0x0a0408, 0.45);
     scene.add(fill);
 
     // ---- TORCHES ----
@@ -251,56 +251,109 @@ class Game {
     scene.add(this.arrowGroup);
   }
 
+  _makeFlameSprite() {
+    const size = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size * 0.62, 2, size / 2, size * 0.5, size * 0.45);
+    g.addColorStop(0.0, 'rgba(255, 255, 220, 1)');
+    g.addColorStop(0.15, 'rgba(255, 230, 140, 1)');
+    g.addColorStop(0.35, 'rgba(255, 160, 50, 0.95)');
+    g.addColorStop(0.6, 'rgba(220, 80, 20, 0.6)');
+    g.addColorStop(1.0, 'rgba(120, 30, 0, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+
   _addTorch(x, y, z, side) {
+    if (!this._flameTex) this._flameTex = this._makeFlameSprite();
     const group = new THREE.Group();
-    // bracket (iron)
-    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.6, metalness: 0.7 });
-    const bracketGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8);
-    const bracket = new THREE.Mesh(bracketGeo, bracketMat);
+    const bracketMat = new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.5, metalness: 0.8 });
+    const bracket = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.35, 8), bracketMat);
     bracket.position.set(-side * 0.15, 0, 0);
-    bracket.rotation.z = side * Math.PI / 2.3;
+    bracket.rotation.z = side * Math.PI / 2;
     group.add(bracket);
-    // wood handle of torch
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 8, 16), bracketMat);
+    ring.position.set(0, 0, 0);
+    ring.rotation.y = Math.PI / 2;
+    group.add(ring);
     const handleMat = new THREE.MeshStandardMaterial({ color: 0x3a2010, roughness: 1 });
-    const handleGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.45, 8);
-    const handle = new THREE.Mesh(handleGeo, handleMat);
-    handle.position.set(-side * 0.32, 0.05, 0);
-    handle.rotation.z = side * Math.PI / 2.5;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.42, 10), handleMat);
+    handle.position.set(-side * 0.34, 0.06, 0);
+    handle.rotation.z = side * Math.PI / 2.6;
     group.add(handle);
-    // flame
-    const flameMat = new THREE.MeshBasicMaterial({
-      color: 0xffb050,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.06, 0.08, 10), bracketMat);
+    cup.position.set(-side * 0.5, 0.18, 0);
+    cup.rotation.z = side * Math.PI / 12;
+    group.add(cup);
+
+    const flameMat = new THREE.SpriteMaterial({
+      map: this._flameTex, color: 0xffa030,
+      transparent: true, opacity: 1.0, depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
-    const flameGeo = new THREE.SphereGeometry(0.18, 8, 8);
-    const flame = new THREE.Mesh(flameGeo, flameMat);
-    flame.position.set(-side * 0.45, 0.22, 0);
+    const flame = new THREE.Sprite(flameMat);
+    flame.position.set(-side * 0.5, 0.45, 0);
+    flame.scale.set(0.6, 0.9, 1);
     group.add(flame);
-    // inner bright core
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.9, depthWrite: false });
-    const coreGeo = new THREE.SphereGeometry(0.08, 6, 6);
-    const core = new THREE.Mesh(coreGeo, coreMat);
-    core.position.copy(flame.position);
-    group.add(core);
-    // light
-    const light = new THREE.PointLight(0xffa040, 4.5, 14, 1.6);
-    light.position.set(-side * 0.45, 0.22, 0);
+
+    const flameInnerMat = new THREE.SpriteMaterial({
+      map: this._flameTex, color: 0xffe080,
+      transparent: true, opacity: 0.95, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const flameInner = new THREE.Sprite(flameInnerMat);
+    flameInner.position.set(-side * 0.5, 0.4, 0);
+    flameInner.scale.set(0.35, 0.55, 1);
+    group.add(flameInner);
+
+    const haloMat = new THREE.SpriteMaterial({
+      map: this._flameTex, color: 0xff6020,
+      transparent: true, opacity: 0.5, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const halo = new THREE.Sprite(haloMat);
+    halo.position.set(-side * 0.5, 0.45, -0.05);
+    halo.scale.set(1.4, 1.4, 1);
+    group.add(halo);
+
+    const light = new THREE.PointLight(0xff9030, 6.5, 22, 1.4);
+    light.position.set(-side * 0.5, 0.45, 0);
     group.add(light);
+
+    // wall scorch
+    const scorchMat = new THREE.MeshBasicMaterial({ color: 0x0a0604, transparent: true, opacity: 0.55, depthWrite: false });
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), scorchMat);
+    scorch.position.set(side * 0.04, 1.2, 0);
+    scorch.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+    group.add(scorch);
 
     group.position.set(x, y, z);
     this.scene.add(group);
-    this.torches.push({ group, flame, core, light, side, baseY: 0.22 });
+    this.torches.push({
+      group, flame, flameInner, halo, light, side,
+      baseScale: { o: 0.6, i: 0.35, h: 1.4 },
+      baseIntensity: 6.5,
+      time: Math.random() * 100
+    });
   }
 
   _animateTorches(dt) {
-    for (const t of this.torches) {
-      const flick = 0.85 + Math.sin(Date.now() / 100 + t.group.position.z) * 0.15 + (Math.random() - 0.5) * 0.1;
-      t.light.intensity = 4.5 * flick;
-      const s = 0.85 + Math.random() * 0.3;
-      t.flame.scale.set(s, s * 1.3, s);
-      t.core.scale.set(s, s * 1.3, s);
+    for (const tt of this.torches) {
+      tt.time += dt;
+      const f1 = Math.sin(tt.time * 12) * 0.08;
+      const f2 = Math.sin(tt.time * 27 + 1.4) * 0.05;
+      const f3 = (Math.random() - 0.5) * 0.12;
+      const flick = 1.0 + f1 + f2 + f3;
+      tt.light.intensity = tt.baseIntensity * Math.max(0.6, flick);
+      const sH = 0.9 + Math.sin(tt.time * 10) * 0.12 + Math.random() * 0.05;
+      const sW = 0.95 + Math.cos(tt.time * 13) * 0.08;
+      tt.flame.scale.set(tt.baseScale.o * sW, tt.baseScale.o * 1.5 * sH, 1);
+      tt.flameInner.scale.set(tt.baseScale.i * sW * 0.95, tt.baseScale.i * 1.6 * sH, 1);
+      tt.halo.scale.set(tt.baseScale.h * (0.9 + Math.random() * 0.2), tt.baseScale.h * (0.95 + Math.random() * 0.15), 1);
+      tt.halo.material.opacity = 0.4 + Math.random() * 0.2;
     }
   }
 
@@ -421,22 +474,25 @@ class Game {
       const hl = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), highlightMat);
       hl.position.set(-0.15, 0.46, 0.3);
       g.add(hl);
-      // eyes
+      // eyes (raised on top so visible from camera looking down)
       const eyeWMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const eyeBMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
       for (const side of [-1, 1]) {
-        const ew = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), eyeWMat);
-        ew.position.set(side * 0.13, 0.46, 0.36);
+        const ew = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), eyeWMat);
+        ew.position.set(side * 0.14, 0.56, 0.28);
         g.add(ew);
-        const eb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeBMat);
-        eb.position.set(side * 0.13, 0.46, 0.42);
+        const eb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), eyeBMat);
+        eb.position.set(side * 0.14, 0.56, 0.36);
         g.add(eb);
+        const ehl = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        ehl.position.set(side * 0.14 + 0.015, 0.58, 0.4);
+        g.add(ehl);
       }
-      // mouth
+      // mouth (smile, open)
       const mouthMat = new THREE.MeshBasicMaterial({ color: 0x102818 });
-      const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), mouthMat);
-      mouth.scale.set(1, 0.5, 0.5);
-      mouth.position.set(0, 0.32, 0.42);
+      const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), mouthMat);
+      mouth.scale.set(1.3, 0.5, 0.5);
+      mouth.position.set(0, 0.42, 0.38);
       g.add(mouth);
       g.userData.scale = 1.0;
     } else if (t === 'bat') {
