@@ -117,7 +117,7 @@ class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05030a);
-    this.scene.fog = new THREE.Fog(0x0a0408, 8, 40);
+    this.scene.fog = new THREE.Fog(0x0a0408, 8, 52);
 
     this.camera = new THREE.PerspectiveCamera(62, 1000 / 600, 0.1, 100);
     this.camera.position.set(0, 1.5, 1.2);
@@ -247,6 +247,9 @@ class Game {
       m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
       scene.add(m);
     }
+
+    // ---- DUNGEON SET DRESSING ----
+    this._addDressing(tunnelW, tunnelLen);
 
     // ---- LIGHTING ----
     const ambient = new THREE.AmbientLight(0x2a1830, 0.7);
@@ -409,6 +412,147 @@ class Game {
         m.sprite.position.z = -2 - Math.random() * 50;
       }
     }
+  }
+
+  _addDressing(tunnelW, tunnelLen) {
+    const scene = this.scene;
+    const boneMat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.6, metalness: 0.05 });
+    const darkBoneMat = new THREE.MeshStandardMaterial({ color: 0xa89878, roughness: 0.7 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x4a2a10, roughness: 1 });
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x303030, roughness: 0.5, metalness: 0.7 });
+
+    const skullSpots = [
+      { x: -2.8, z: -7, rot: 0.4, side: -1 },
+      { x: 2.6, z: -18, rot: -0.7, side: 1 },
+      { x: -1.5, z: -28, rot: 1.2, side: -1 }
+    ];
+    for (const s of skullSpots) {
+      const skull = this._makeSkull(boneMat, darkBoneMat);
+      skull.position.set(s.x, 0.15, s.z);
+      skull.rotation.y = s.rot;
+      scene.add(skull);
+      // bones nearby
+      for (let i = 0; i < 3; i++) {
+        const boneGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.35, 8);
+        const bone = new THREE.Mesh(boneGeo, boneMat);
+        bone.position.set(s.x + (Math.random() - 0.5) * 0.7, 0.04, s.z + (Math.random() - 0.5) * 0.7);
+        bone.rotation.set(Math.PI / 2 + (Math.random() - 0.5) * 0.4, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5);
+        scene.add(bone);
+        // bone caps
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), boneMat);
+        cap.position.copy(bone.position);
+        cap.position.x += Math.cos(bone.rotation.y) * 0.18;
+        cap.position.z += Math.sin(bone.rotation.y) * 0.18;
+        scene.add(cap);
+      }
+    }
+
+    // barrels along walls
+    const barrelSpots = [
+      { x: -3.4, z: -5 },
+      { x: -3.5, z: -25 },
+      { x: 3.4, z: -12 },
+      { x: 3.6, z: -34 }
+    ];
+    for (const b of barrelSpots) {
+      scene.add(this._makeBarrel(woodMat, metalMat, b.x, b.z));
+    }
+
+    // chains hanging from beams
+    for (let i = 0; i < 2; i++) {
+      const z = -10 - i * 16;
+      const chainMat = metalMat;
+      for (const side of [-1, 1]) {
+        for (let link = 0; link < 5; link++) {
+          const linkGeo = new THREE.TorusGeometry(0.04, 0.012, 6, 10);
+          const linkMesh = new THREE.Mesh(linkGeo, chainMat);
+          linkMesh.position.set(side * (tunnelW / 2 - 0.6), 4.6 - link * 0.08, z);
+          linkMesh.rotation.x = link % 2 === 0 ? 0 : Math.PI / 2;
+          scene.add(linkMesh);
+        }
+      }
+    }
+
+    // ---- TUNNEL END ALTAR ----
+    const altarZ = -tunnelLen + 6;
+    // pedestal
+    const pedMat = new THREE.MeshStandardMaterial({ color: 0x4a3828, roughness: 0.9 });
+    const pedBase = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.2), pedMat);
+    pedBase.position.set(0, 0.15, altarZ);
+    scene.add(pedBase);
+    const pedTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.9), pedMat);
+    pedTop.position.set(0, 0.6, altarZ);
+    scene.add(pedTop);
+    // mystical orb on altar
+    const orbMat = new THREE.MeshStandardMaterial({
+      color: 0x4a90ff,
+      emissive: 0x2050ff,
+      emissiveIntensity: 1.2,
+      metalness: 0.3,
+      roughness: 0.1
+    });
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 20), orbMat);
+    orb.position.set(0, 1.2, altarZ);
+    scene.add(orb);
+    const orbLight = new THREE.PointLight(0x4a90ff, 2.5, 10, 1.5);
+    orbLight.position.set(0, 1.2, altarZ);
+    scene.add(orbLight);
+    this._altarOrb = orb;
+    this._altarLight = orbLight;
+  }
+
+  _makeSkull(boneMat, darkBoneMat) {
+    const g = new THREE.Group();
+    // cranium
+    const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), boneMat);
+    cranium.scale.set(1.0, 0.9, 1.1);
+    cranium.position.y = 0.13;
+    g.add(cranium);
+    // jaw
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.13), boneMat);
+    jaw.position.set(0, 0.03, 0.05);
+    g.add(jaw);
+    // eye sockets
+    const socketMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), socketMat);
+      eye.position.set(side * 0.05, 0.15, 0.11);
+      g.add(eye);
+    }
+    // nose hole
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.05, 6), socketMat);
+    nose.position.set(0, 0.1, 0.13);
+    nose.rotation.x = -Math.PI / 2;
+    g.add(nose);
+    // teeth
+    const teethMat = darkBoneMat;
+    for (let i = -3; i <= 3; i++) {
+      const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.025, 0.015), teethMat);
+      tooth.position.set(i * 0.022, 0.06, 0.11);
+      g.add(tooth);
+    }
+    return g;
+  }
+
+  _makeBarrel(woodMat, metalMat, x, z) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.7, 14), woodMat);
+    body.position.y = 0.35;
+    g.add(body);
+    // metal bands
+    for (const yOff of [-0.22, 0.0, 0.22]) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.025, 6, 16), metalMat);
+      band.position.y = 0.35 + yOff;
+      band.rotation.x = Math.PI / 2;
+      g.add(band);
+    }
+    // top
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.04, 14), woodMat);
+    top.position.y = 0.72;
+    g.add(top);
+    g.position.set(x, 0, z);
+    g.rotation.y = Math.random() * Math.PI;
+    return g;
   }
 
   _makeFlameSprite() {
@@ -1379,6 +1523,13 @@ class Game {
     this._updateEmbers(dt);
     this._updateDust(dt);
     this._updateEnemyMeshes(dt);
+    // altar orb pulse
+    if (this._altarOrb && this._altarLight) {
+      const t = Date.now() / 1000;
+      const p = 1.0 + Math.sin(t * 2.0) * 0.3;
+      this._altarOrb.scale.setScalar(p);
+      this._altarLight.intensity = 2.5 * p;
+    }
 
     // subtle breathing camera
     const t = Date.now() / 1000;
