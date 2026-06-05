@@ -115,8 +115,10 @@ class Game {
   }
 
   _setupThree() {
+    const w = this.canvas3d.width;
+    const h = this.canvas3d.height;
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas3d, antialias: true });
-    this.renderer.setSize(1000, 600, false);
+    this.renderer.setSize(w, h, false);
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -127,19 +129,36 @@ class Game {
     this.scene.background = new THREE.Color(0x05030a);
     this.scene.fog = new THREE.Fog(0x0a0408, 8, 52);
 
-    this.camera = new THREE.PerspectiveCamera(62, 1000 / 600, 0.1, 100);
+    this.camera = new THREE.PerspectiveCamera(62, w / h, 0.1, 100);
     this.camera.position.set(0, 1.5, 1.2);
     this.camera.lookAt(0, 1.3, -5);
 
     // postprocessing — bloom for glow on torches and emissive enemies
     if (window.EffectComposer && window.RenderPass && window.UnrealBloomPass) {
       this.composer = new window.EffectComposer(this.renderer);
-      this.composer.setSize(1000, 600);
+      this.composer.setSize(w, h);
       this.composer.addPass(new window.RenderPass(this.scene, this.camera));
-      // (strength, radius, threshold) — threshold filters out non-emissive surfaces
-      const bloom = new window.UnrealBloomPass(new THREE.Vector2(1000, 600), 0.65, 0.55, 0.75);
-      this.composer.addPass(bloom);
+      this._bloomPass = new window.UnrealBloomPass(new THREE.Vector2(w, h), 0.65, 0.55, 0.75);
+      this.composer.addPass(this._bloomPass);
     }
+
+    // window resize handling
+    this._boundResize = () => this._resizeRenderer();
+    window.addEventListener('resize', this._boundResize);
+  }
+
+  _resizeRenderer() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.canvas3d.width = w;
+    this.canvas3d.height = h;
+    this.canvas2d.width = w;
+    this.canvas2d.height = h;
+    this.renderer.setSize(w, h, false);
+    if (this.composer) this.composer.setSize(w, h);
+    if (this._bloomPass) this._bloomPass.setSize(w, h);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
   }
 
   _buildScene() {
@@ -1784,8 +1803,8 @@ class Game {
   _worldToScreen(vec3) {
     const v = vec3.clone().project(this.camera);
     return {
-      x: (v.x * 0.5 + 0.5) * 1000,
-      y: (-v.y * 0.5 + 0.5) * 600,
+      x: (v.x * 0.5 + 0.5) * this.canvas2d.width,
+      y: (-v.y * 0.5 + 0.5) * this.canvas2d.height,
       z: v.z
     };
   }
@@ -1961,8 +1980,8 @@ class Game {
 
   _drawOverlay() {
     const ctx = this.ctx2d;
-    const w = 1000;
-    const h = 600;
+    const w = this.canvas2d.width;
+    const h = this.canvas2d.height;
     ctx.clearRect(0, 0, w, h);
 
     // labels above enemies — sorted far-first so close ones overlay
@@ -2341,7 +2360,9 @@ class Game {
   }
 
   _drawVignette(ctx, w, h) {
-    const v = ctx.createRadialGradient(w / 2, h / 2 - 50, 220, w / 2, h / 2, 600);
+    const inner = Math.min(w, h) * 0.35;
+    const outer = Math.max(w, h) * 0.7;
+    const v = ctx.createRadialGradient(w / 2, h / 2 - h * 0.08, inner, w / 2, h / 2, outer);
     v.addColorStop(0, 'rgba(0, 0, 0, 0)');
     v.addColorStop(1, 'rgba(0, 0, 0, 0.65)');
     ctx.fillStyle = v;
@@ -2356,6 +2377,7 @@ class Game {
     this.running = false;
     document.removeEventListener('keydown', this._boundKeyHandler);
     this.canvas3d.removeEventListener('click', this._boundClickHandler);
+    if (this._boundResize) window.removeEventListener('resize', this._boundResize);
     if (this.audio) this.audio.stopBGM();
     if (this.renderer) {
       this.renderer.dispose();
