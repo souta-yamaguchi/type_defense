@@ -93,6 +93,7 @@ class Game {
     this.bowRecoil = 0;
     this.damageFlash = 0;
     this.cameraShake = 0;
+    this.uiScale = 3;  // 2D overlay (HUD/labels/input) text & layout multiplier
 
     this._setupThree();
     this._buildScene();
@@ -2007,9 +2008,10 @@ class Game {
   }
 
   _drawEnemyLabel(ctx, enemy, sp) {
+    const s = this.uiScale;
     const depthScale = Math.max(0.5, Math.min(1.4, 1 / (Math.abs(sp.z) + 0.6)));
-    const fontKana = 14 * depthScale;
-    const fontRoma = 16 * depthScale;
+    const fontKana = 14 * depthScale * s;
+    const fontRoma = 16 * depthScale * s;
     const labelY = sp.y;
 
     ctx.save();
@@ -2020,11 +2022,11 @@ class Game {
     ctx.font = `bold ${fontKana}px 'Segoe UI', sans-serif`;
     const kanaW = ctx.measureText(enemy.currentWord).width;
     ctx.fillStyle = 'rgba(8, 10, 14, 0.85)';
-    ctx.fillRect(sp.x - kanaW / 2 - 6, labelY - fontKana / 2 - 2, kanaW + 12, fontKana + 4);
+    ctx.fillRect(sp.x - kanaW / 2 - 6 * s, labelY - fontKana / 2 - 2 * s, kanaW + 12 * s, fontKana + 4 * s);
     ctx.fillStyle = enemy.targeted ? '#fbbf24' : '#ffffff';
     if (enemy.targeted) {
       ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 8 * s;
     }
     ctx.fillText(enemy.currentWord, sp.x, labelY);
     ctx.shadowBlur = 0;
@@ -2035,11 +2037,11 @@ class Game {
     const remaining = romaji.slice(confirmed.length);
     ctx.font = `bold ${fontRoma}px 'Courier New', monospace`;
     const romaW = ctx.measureText(romaji).width;
-    const romaY = labelY + fontKana / 2 + fontRoma / 2 + 4;
+    const romaY = labelY + fontKana / 2 + fontRoma / 2 + 4 * s;
     const bgColor = enemy.targeted ? 'rgba(70, 100, 180, 0.95)' : 'rgba(30, 50, 90, 0.85)';
     ctx.fillStyle = bgColor;
-    const pad = 6;
-    ctx.fillRect(sp.x - romaW / 2 - pad, romaY - fontRoma / 2 - 2, romaW + pad * 2, fontRoma + 4);
+    const pad = 6 * s;
+    ctx.fillRect(sp.x - romaW / 2 - pad, romaY - fontRoma / 2 - 2 * s, romaW + pad * 2, fontRoma + 4 * s);
     ctx.textAlign = 'left';
     const startX = sp.x - romaW / 2;
     ctx.fillStyle = '#86efac';
@@ -2221,46 +2223,48 @@ class Game {
   }
 
   _drawHUD(ctx, w) {
+    const s = this.uiScale;
+    const barH = 42 * s;
+    const cy = barH / 2;
     ctx.save();
-    const tg = ctx.createLinearGradient(0, 0, 0, 42);
+    const tg = ctx.createLinearGradient(0, 0, 0, barH);
     tg.addColorStop(0, 'rgba(0, 0, 0, 0.85)');
     tg.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
     ctx.fillStyle = tg;
-    ctx.fillRect(0, 0, w, 42);
+    ctx.fillRect(0, 0, w, barH);
 
-    ctx.font = "bold 14px 'Segoe UI', sans-serif";
+    ctx.font = `bold ${14 * s}px 'Segoe UI', sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillStyle = '#cc3333';
-    ctx.fillText('HP', 14, 21);
+    ctx.fillText('HP', 14 * s, cy);
 
-    const heartStart = 42;
-    const heartSize = 18;
-    const heartGap = 6;
+    const heartStart = 42 * s;
+    const heartSize = 18 * s;
+    const heartGap = 6 * s;
     for (let i = 0; i < this.maxWallHp; i++) {
       const hx = heartStart + i * (heartSize + heartGap) + heartSize / 2;
-      const hy = 21;
-      this._drawHeart(ctx, hx, hy, heartSize, i < this.wallHp);
+      this._drawHeart(ctx, hx, cy, heartSize, i < this.wallHp);
     }
 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#e5e7eb';
-    ctx.font = "bold 16px 'Segoe UI', sans-serif";
-    ctx.fillText(`WAVE ${this.currentWave}/${this.totalWaves}`, w / 2, 21);
+    ctx.font = `bold ${16 * s}px 'Segoe UI', sans-serif`;
+    ctx.fillText(`WAVE ${this.currentWave}/${this.totalWaves}`, w / 2, cy);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#fbbf24';
-    ctx.fillText('SCORE', w - 90, 21);
+    ctx.fillText('SCORE', w - 90 * s, cy);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(this.score.toLocaleString(), w - 14, 21);
+    ctx.fillText(this.score.toLocaleString(), w - 14 * s, cy);
 
     if (this.combo >= 3) {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#f97316';
-      ctx.font = "bold 14px 'Segoe UI', sans-serif";
+      ctx.font = `bold ${14 * s}px 'Segoe UI', sans-serif`;
       ctx.shadowColor = '#f97316';
-      ctx.shadowBlur = 8;
-      ctx.fillText(`${this.combo} COMBO`, heartStart + this.maxWallHp * (heartSize + heartGap) + 16, 21);
+      ctx.shadowBlur = 8 * s;
+      ctx.fillText(`${this.combo} COMBO`, heartStart + this.maxWallHp * (heartSize + heartGap) + 16 * s, cy);
       ctx.shadowBlur = 0;
     }
     ctx.restore();
@@ -2294,14 +2298,16 @@ class Game {
   }
 
   _drawInputArea(ctx, w, h) {
-    const areaY = h - 110;
+    const s = this.uiScale;
+    const areaH = 110 * s;
+    const areaY = h - areaH;
     const ag = ctx.createLinearGradient(0, areaY, 0, h);
     ag.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
     ag.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
     ctx.fillStyle = ag;
-    ctx.fillRect(0, areaY, w, 110);
+    ctx.fillRect(0, areaY, w, areaH);
     ctx.strokeStyle = 'rgba(212, 160, 23, 0.4)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 * s;
     ctx.beginPath();
     ctx.moveTo(0, areaY);
     ctx.lineTo(w, areaY);
@@ -2310,53 +2316,53 @@ class Game {
     if (this.targetEnemy && this.targetEnemy.alive && this.targetEnemy.romaji) {
       const enemy = this.targetEnemy;
       const romaji = enemy.romaji;
-      ctx.font = "bold 14px 'Segoe UI', sans-serif";
+      ctx.font = `bold ${14 * s}px 'Segoe UI', sans-serif`;
       ctx.textAlign = 'left';
       ctx.fillStyle = '#9ca3af';
-      ctx.fillText(`TARGET: ${enemy.def.name}`, 20, areaY + 25);
+      ctx.fillText(`TARGET: ${enemy.def.name}`, 20 * s, areaY + 25 * s);
       if (enemy.maxHp > 1) {
         ctx.fillStyle = '#fbbf24';
-        ctx.fillText(`HP ${enemy.hp}/${enemy.maxHp}`, 200, areaY + 25);
+        ctx.fillText(`HP ${enemy.hp}/${enemy.maxHp}`, 200 * s, areaY + 25 * s);
       }
-      ctx.font = "bold 28px 'Segoe UI', sans-serif";
+      ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#fbbf24';
-      ctx.fillText(enemy.currentWord, w / 2, areaY + 55);
+      ctx.fillText(enemy.currentWord, w / 2, areaY + 55 * s);
       const display = romaji.displayRomaji;
       const confirmed = romaji.confirmed;
       const remaining = display.slice(confirmed.length);
-      ctx.font = "bold 24px 'Courier New', monospace";
+      ctx.font = `bold ${24 * s}px 'Courier New', monospace`;
       const fullW = ctx.measureText(display).width;
       const startX = w / 2 - fullW / 2;
       ctx.textAlign = 'left';
       ctx.fillStyle = '#86efac';
-      ctx.fillText(confirmed, startX, areaY + 90);
+      ctx.fillText(confirmed, startX, areaY + 90 * s);
       const confW = ctx.measureText(confirmed).width;
       ctx.fillStyle = '#9ca3af';
-      ctx.fillText(remaining, startX + confW, areaY + 90);
+      ctx.fillText(remaining, startX + confW, areaY + 90 * s);
       ctx.fillStyle = '#86efac';
-      ctx.fillRect(startX + confW, areaY + 94, 2, 4);
+      ctx.fillRect(startX + confW, areaY + 94 * s, 2 * s, 4 * s);
     } else if (this._pendingBuffer) {
-      ctx.font = "bold 24px 'Courier New', monospace";
+      ctx.font = `bold ${24 * s}px 'Courier New', monospace`;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#d4a017';
-      ctx.fillText(this._pendingBuffer + '_', w / 2, areaY + 55);
-      ctx.font = "14px 'Segoe UI', sans-serif";
+      ctx.fillText(this._pendingBuffer + '_', w / 2, areaY + 55 * s);
+      ctx.font = `${14 * s}px 'Segoe UI', sans-serif`;
       ctx.fillStyle = '#9ca3af';
-      ctx.fillText('入力中... 候補を絞り込んでいます', w / 2, areaY + 88);
+      ctx.fillText('入力中... 候補を絞り込んでいます', w / 2, areaY + 88 * s);
     } else {
-      ctx.font = "16px 'Segoe UI', sans-serif";
+      ctx.font = `${16 * s}px 'Segoe UI', sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#6b7280';
-      ctx.fillText('タイピングで敵を撃破！', w / 2, areaY + 60);
+      ctx.fillText('タイピングで敵を撃破！', w / 2, areaY + 60 * s);
     }
 
-    ctx.font = "12px 'Segoe UI', sans-serif";
+    ctx.font = `${12 * s}px 'Segoe UI', sans-serif`;
     ctx.textAlign = 'right';
     ctx.fillStyle = '#9ca3af';
     const acc = this.totalCorrect + this.totalMiss > 0
       ? (this.totalCorrect / (this.totalCorrect + this.totalMiss) * 100).toFixed(1) : '100.0';
-    ctx.fillText(`撃破: ${this.kills}体  正確率: ${acc}%`, w - 20, areaY + 100);
+    ctx.fillText(`撃破: ${this.kills}体  正確率: ${acc}%`, w - 20 * s, areaY + 100 * s);
   }
 
   _drawVignette(ctx, w, h) {

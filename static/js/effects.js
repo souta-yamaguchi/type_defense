@@ -65,13 +65,14 @@ class FloatingText {
   }
 
   draw(ctx) {
+    const s = (window.currentGame && window.currentGame.uiScale) ? window.currentGame.uiScale : 1;
     ctx.save();
     ctx.globalAlpha = this.alpha;
     ctx.fillStyle = this.color;
-    ctx.font = `bold ${this.size}px 'Segoe UI', sans-serif`;
+    ctx.font = `bold ${this.size * s}px 'Segoe UI', sans-serif`;
     ctx.textAlign = 'center';
     ctx.shadowColor = this.color;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 10 * s;
     ctx.fillText(this.text, this.x, this.y);
     ctx.restore();
   }
@@ -177,6 +178,7 @@ class EffectsManager {
   }
 
   draw(ctx, canvas) {
+    const s = (window.currentGame && window.currentGame.uiScale) ? window.currentGame.uiScale : 1;
     for (const p of this.particles) p.draw(ctx);
     for (const t of this.texts) t.draw(ctx);
 
@@ -196,17 +198,17 @@ class EffectsManager {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.globalAlpha = a;
       ctx.fillStyle = '#ef4444';
-      ctx.font = `bold 72px 'Segoe UI', sans-serif`;
+      ctx.font = `bold ${72 * s}px 'Segoe UI', sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = '#ef4444';
-      ctx.shadowBlur = 30;
-      ctx.fillText(this.warningText, canvas.width / 2, canvas.height / 2 - 50);
-      ctx.font = `bold 28px 'Segoe UI', sans-serif`;
+      ctx.shadowBlur = 30 * s;
+      ctx.fillText(this.warningText, canvas.width / 2, canvas.height / 2 - 50 * s);
+      ctx.font = `bold ${28 * s}px 'Segoe UI', sans-serif`;
       ctx.fillStyle = '#fbbf24';
       ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 15;
-      ctx.fillText('BOSS APPROACHING...', canvas.width / 2, canvas.height / 2 + 20);
+      ctx.shadowBlur = 15 * s;
+      ctx.fillText('BOSS APPROACHING...', canvas.width / 2, canvas.height / 2 + 20 * s);
       ctx.restore();
     }
 
@@ -215,12 +217,12 @@ class EffectsManager {
       const a = Math.min(1, this.waveClearAlpha);
       ctx.globalAlpha = a;
       ctx.fillStyle = this.waveClearText === 'VICTORY!' ? '#fbbf24' : '#4ade80';
-      ctx.font = `bold 56px 'Segoe UI', sans-serif`;
+      ctx.font = `bold ${56 * s}px 'Segoe UI', sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = ctx.fillStyle;
-      ctx.shadowBlur = 25;
-      ctx.fillText(this.waveClearText, canvas.width / 2, canvas.height / 2 - 30);
+      ctx.shadowBlur = 25 * s;
+      ctx.fillText(this.waveClearText, canvas.width / 2, canvas.height / 2 - 30 * s);
       ctx.restore();
     }
   }
