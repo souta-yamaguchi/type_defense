@@ -1490,8 +1490,42 @@ class Game {
             obj.material.emissiveIntensity = 0.5 + flash * 2;
           }
         });
-      } else if (enemy.mesh.userData.normalizedEmissive !== true) {
-        // reset emissive intensity periodically
+      }
+      // death animation: keep enemy visible with stuck arrow, then explode+remove.
+      // Don't scale down the mesh — that would shrink the stuck arrow too.
+      if (enemy.deathTimer != null && enemy.deathTimer > 0) {
+        enemy.deathTimer -= dt;
+        const elapsed = enemy.deathDuration - enemy.deathTimer;
+        // Strong continuous hit flash while dying so it's clearly "hurt"
+        enemy.mesh.traverse(obj => {
+          if (obj.material && obj.material.emissive) {
+            obj.material.emissiveIntensity = 1.5 + Math.sin(Date.now() / 25) * 0.8;
+          }
+        });
+        // Subtle backward tilt as it dies
+        enemy.mesh.rotation.z = Math.min(1, elapsed / enemy.deathDuration) * -0.35;
+        // Explode mid-way through death
+        if (!enemy.deathExploded && elapsed >= enemy.deathExplodeAt) {
+          enemy.deathExploded = true;
+          const hp = enemy.deathHitPos;
+          if (hp) {
+            if (hp.isBoss) {
+              this.effects.bossExplode(hp.x, hp.y);
+              this.audio.bossKill();
+              this.effects.triggerShake(10);
+              this.cameraShake = 0.6;
+            } else {
+              this.effects.explode(hp.x, hp.y, '#d4a017');
+              this.audio.enemyKill();
+            }
+            this.effects.addScoreText(hp.x, hp.y - 20, hp.pts);
+            if (hp.combo >= 3) this.effects.addComboText(hp.x, hp.y, hp.combo);
+          }
+        }
+        if (enemy.deathTimer <= 0) {
+          enemy.deathTimer = null;
+          enemy.dying = false;  // triggers removal next frame
+        }
       }
     }
   }
@@ -1693,23 +1727,32 @@ class Game {
   }
 
   _spawnArrow3D(opts) {
-    const shaftMat = new THREE.MeshStandardMaterial({ color: 0xd4a017, emissive: 0x402010, emissiveIntensity: 0.4, roughness: 0.5 });
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, metalness: 0.7, roughness: 0.3 });
-    const fletchMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.7 });
+    const shaftMat = new THREE.MeshStandardMaterial({
+      color: 0xf4c437, emissive: 0xb06010, emissiveIntensity: 1.4, roughness: 0.4
+    });
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xf0f0f0, metalness: 0.9, roughness: 0.15,
+      emissive: 0x606060, emissiveIntensity: 0.8
+    });
+    const fletchMat = new THREE.MeshStandardMaterial({
+      color: 0xff4848, emissive: 0xa01818, emissiveIntensity: 1.2, roughness: 0.6
+    });
 
+    // Build the arrow along the local -Z axis so it matches lookAt's convention:
+    // head at -Z (front, toward target), fletching at +Z (back, toward bow).
     const group = new THREE.Group();
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.7, 8), shaftMat);
-    shaft.rotation.z = Math.PI / 2;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 10), shaftMat);
+    shaft.rotation.x = Math.PI / 2;  // cylinder Y-axis → Z-axis
     group.add(shaft);
-    const head = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.13, 8), headMat);
-    head.rotation.z = -Math.PI / 2;
-    head.position.x = 0.42;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 10), headMat);
+    head.rotation.x = -Math.PI / 2;  // cone tip → -Z
+    head.position.z = -0.49;
     group.add(head);
-    // fletching (3 fins)
+    // fletching (3 fins) at the back of the shaft (+Z)
     for (let i = 0; i < 3; i++) {
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.005), fletchMat);
-      fin.position.x = -0.32;
-      fin.rotation.x = (i / 3) * Math.PI * 2;
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.008, 0.16), fletchMat);
+      fin.position.z = 0.36;
+      fin.rotation.z = (i / 3) * Math.PI * 2;
       group.add(fin);
     }
 
@@ -1746,14 +1789,9 @@ class Game {
       arrow.progress += dt / arrow.duration;
       if (arrow.progress >= 1) {
         arrow.alive = false;
+        this._stickArrowInEnemy(arrow);  // attach mesh to enemy (visual: stuck)
         this._onArrowHit(arrow);
-        if (arrow.mesh) {
-          this.arrowGroup.remove(arrow.mesh);
-          arrow.mesh.traverse(obj => {
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-          });
-        }
+        // Mesh disposal is deferred — happens when enemy is removed, or via _stuckArrows cleanup
         continue;
       }
       const target = arrow.enemy ? this._enemyHitPoint(arrow.enemy) : new THREE.Vector3(0, 1.5, -10);
@@ -1767,6 +1805,70 @@ class Game {
       }
     }
     this.arrows = this.arrows.filter(a => a.alive);
+
+    // Update + cleanup stuck arrows: follow their host enemy's world position
+    if (this._stuckArrows && this._stuckArrows.length) {
+      const enemyPos = new THREE.Vector3();
+      this._stuckArrows = this._stuckArrows.filter(s => {
+        if (s.enemy && s.enemy.mesh && s.enemy.mesh.parent) {
+          s.enemy.mesh.getWorldPosition(enemyPos);
+          s.mesh.position.copy(enemyPos).add(s.offset);
+          return true;
+        }
+        // host gone → dispose
+        if (s.mesh) {
+          if (s.mesh.parent) s.mesh.parent.remove(s.mesh);
+          s.mesh.traverse(o => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) o.material.dispose();
+          });
+        }
+        return false;
+      });
+    }
+  }
+
+  _stickArrowInEnemy(arrow) {
+    if (!arrow.mesh) return;
+    if (!arrow.enemy || !arrow.enemy.mesh) {
+      // no enemy to stick into → just dispose
+      this.arrowGroup.remove(arrow.mesh);
+      arrow.mesh.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+      return;
+    }
+    // Instead of attaching to the enemy (whose lookAt/rotation makes
+    // local-space offsets tricky), keep the arrow as a child of arrowGroup
+    // and update its world position each frame to track the enemy.
+    // We snapshot the arrow's CURRENT world direction toward the bow and
+    // pull it back by `pullback` units along that direction so the shaft
+    // visibly sticks out of the front of the enemy.
+    const enemyWorldPos = new THREE.Vector3();
+    arrow.enemy.mesh.getWorldPosition(enemyWorldPos);
+    // direction from enemy back toward bow (camera)
+    const bowWorldPos = new THREE.Vector3();
+    if (this.bow3D) this.bow3D.getWorldPosition(bowWorldPos);
+    else bowWorldPos.copy(this.camera.position);
+    const backDir = new THREE.Vector3().subVectors(bowWorldPos, enemyWorldPos).normalize();
+    const radius = {
+      slime: 0.45, bat: 0.32, wolf: 0.5, dragon: 0.7, boss: 1.0
+    }[arrow.enemy.type] || 0.5;
+    const pullback = radius + 0.35;
+    // arrow stuck-in-world position = surface of enemy facing bow
+    const stuckOffset = backDir.clone().multiplyScalar(pullback);
+    const stuckWorldPos = enemyWorldPos.clone().add(stuckOffset);
+    arrow.mesh.position.copy(stuckWorldPos);
+    arrow.mesh.lookAt(enemyWorldPos);  // head points at enemy center
+    arrow.mesh.rotation.z = 0;
+    // Track for per-frame position updates + cleanup when enemy is gone
+    if (!this._stuckArrows) this._stuckArrows = [];
+    this._stuckArrows.push({
+      mesh: arrow.mesh,
+      enemy: arrow.enemy,
+      offset: stuckOffset
+    });
   }
 
   _onArrowHit(arrow) {
@@ -1787,18 +1889,16 @@ class Game {
     }
     this.kills++;
     this.score += arrow.pts;
-    if (arrow.enemy) arrow.enemy.dying = false;
-    if (arrow.isBoss) {
-      this.effects.bossExplode(tx, ty);
-      this.audio.bossKill();
-      this.effects.triggerShake(10);
-      this.cameraShake = 0.6;
-    } else {
-      this.effects.explode(tx, ty, '#d4a017');
-      this.audio.enemyKill();
+    // Death animation: keep enemy mesh visible for a short moment with the
+    // arrow stuck in it, then explode + remove. Set deathTimer instead of
+    // immediately clearing dying.
+    if (arrow.enemy) {
+      arrow.enemy.deathTimer = arrow.isBoss ? 0.45 : 0.28;
+      arrow.enemy.deathDuration = arrow.enemy.deathTimer;
+      arrow.enemy.deathExplodeAt = arrow.isBoss ? 0.25 : 0.18; // explode after this delay
+      arrow.enemy.deathExploded = false;
+      arrow.enemy.deathHitPos = { x: tx, y: ty, isBoss: arrow.isBoss, pts: arrow.pts, combo: arrow.combo };
     }
-    this.effects.addScoreText(tx, ty - 20, arrow.pts);
-    if (arrow.combo >= 3) this.effects.addComboText(tx, ty, arrow.combo);
   }
 
   _worldToScreen(vec3) {
