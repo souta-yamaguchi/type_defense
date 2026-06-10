@@ -1,15 +1,33 @@
 let currentGame = null;
-let wordsData = null;
 let lastResult = null;
-
-async function loadWords() {
-  const res = await fetch('/api/words');
-  wordsData = await res.json();
-}
+let titleBg = null;
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  // The title's live 3D cave background runs only while the title is visible.
+  // Starting/stopping it here keeps exactly one WebGL context alive (title OR game).
+  if (id === 'title-screen') startTitleBackground();
+  else stopTitleBackground();
+}
+
+function startTitleBackground() {
+  const c = document.getElementById('titleCanvas3d');
+  if (!c) return;
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+  // If WebGL init fails (context exhausted etc.), swallow the error so the page
+  // still works — the dark CSS fallback background shows instead of going blank.
+  try {
+    if (!titleBg && window.TitleBackground) titleBg = new TitleBackground(c);
+  } catch (e) {
+    console.warn('title background unavailable:', e);
+    titleBg = null;
+  }
+}
+
+function stopTitleBackground() {
+  if (titleBg) { titleBg.dispose(); titleBg = null; }
 }
 
 function startGame(difficulty) {
@@ -23,7 +41,7 @@ function startGame(difficulty) {
   canvas2d.width = w;
   canvas2d.height = h;
   if (currentGame) currentGame.destroy();
-  currentGame = new Game(canvas3d, canvas2d, difficulty, wordsData, onGameEnd);
+  currentGame = new Game(canvas3d, canvas2d, difficulty, onGameEnd);
 }
 
 function onGameEnd(result) {
@@ -52,7 +70,7 @@ function showResult(r) {
       <div class="stat-row"><span>到達Wave</span><span>${r.wave} / ${r.totalWaves}</span></div>
       <div class="stat-row"><span>撃破数</span><span>${r.kills} 体</span></div>
       <div class="stat-row"><span>最大コンボ</span><span>${r.combo}</span></div>
-      <div class="stat-row"><span>正確率</span><span>${accPct}%</span></div>
+      <div class="stat-row"><span>命中率</span><span>${accPct}%</span></div>
       <div class="stat-row"><span>残HP</span><span>${r.wallHp} / ${r.maxWallHp}</span></div>
     </div>
     <div class="result-ranking-form" id="ranking-form">
@@ -105,7 +123,7 @@ async function showRanking(difficulty = 'normal') {
   body.innerHTML = `
     <table class="rank-table">
       <thead>
-        <tr><th>#</th><th>名前</th><th>スコア</th><th>Wave</th><th>撃破</th><th>正確率</th><th>日付</th></tr>
+        <tr><th>#</th><th>名前</th><th>スコア</th><th>Wave</th><th>撃破</th><th>命中率</th><th>日付</th></tr>
       </thead>
       <tbody>
         ${rankings.map((r, i) => `
@@ -145,7 +163,6 @@ function waitForThree() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await waitForThree();
-  await loadWords();
   showScreen('title-screen');
 
   document.querySelectorAll('[data-difficulty]').forEach(btn => {

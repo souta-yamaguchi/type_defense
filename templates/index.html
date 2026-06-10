@@ -3,28 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TYPE DEFENSE - タイピング×タワーディフェンス</title>
+  <title>CAVE STRIKE - 3D 弓シューティング</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
   <div id="app">
 
     <div id="title-screen" class="screen">
+      <canvas id="titleCanvas3d"></canvas>
+      <div class="title-vignette"></div>
       <div class="title-container">
-        <h1 class="game-title">TYPE<br>DEFENSE</h1>
-        <p class="subtitle">タイピング × ファーストパーソン・タワーディフェンス</p>
+        <h1 class="game-title">CAVE<br>STRIKE</h1>
+        <p class="subtitle">ファーストパーソン 弓シューティング</p>
         <div class="difficulty-select">
           <button data-difficulty="easy" class="diff-btn easy">
             <span class="diff-name">EASY</span>
-            <span class="diff-desc">5 Waves / HP 5 / 短い単語</span>
+            <span class="diff-desc">5 Waves / HP 5 / 敵がゆっくり</span>
           </button>
           <button data-difficulty="normal" class="diff-btn normal">
             <span class="diff-name">NORMAL</span>
-            <span class="diff-desc">5 Waves / HP 5 / 普通の単語・速い敵</span>
+            <span class="diff-desc">5 Waves / HP 5 / 速い敵</span>
           </button>
           <button data-difficulty="hard" class="diff-btn hard">
             <span class="diff-name">HARD</span>
-            <span class="diff-desc">5 Waves / HP 5 / 長い単語・大群・高速</span>
+            <span class="diff-desc">5 Waves / HP 5 / 大群・高速</span>
           </button>
         </div>
         <button id="btn-ranking" class="menu-btn">ランキング</button>
@@ -32,8 +34,8 @@
           <h3>遊び方</h3>
           <ul>
             <li>洞窟の奥から敵が迫ってきます</li>
-            <li>倒したい敵の単語をローマ字で打つだけ！</li>
-            <li>打ち始めると自動でその敵にロック＆弓で射撃</li>
+            <li>マウスで狙いを定め、クリック / スペースで射撃</li>
+            <li>雑魚は1発、ボスは連射で撃破</li>
             <li>HPが0になるとゲームオーバー</li>
             <li>Wave 5 では巨大ボスが出現します</li>
           </ul>
@@ -84,11 +86,11 @@
     window.ShaderPass = ShaderPass;
     window.dispatchEvent(new CustomEvent('threeReady'));
   </script>
-  <script src="/static/js/romaji.js"></script>
   <script src="/static/js/enemies.js"></script>
   <script src="/static/js/effects.js"></script>
   <script src="/static/js/audio.js"></script>
   <script src="/static/js/game.js"></script>
+  <script src="/static/js/title.js"></script>
   <script src="/static/js/ranking.js"></script>
   <script src="/static/js/main.js"></script>
 </body>

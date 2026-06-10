@@ -4,8 +4,7 @@ const ENEMY_TYPES = {
     color: '#4ade80',
     glowColor: '#22c55e',
     hp: 1,
-    speed: 1.0,
-    wordLength: [4, 5],
+    speed: 1.5,
     size: 28,
     score: 100,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -39,8 +38,7 @@ const ENEMY_TYPES = {
     color: '#a855f7',
     glowColor: '#9333ea',
     hp: 1,
-    speed: 1.2,
-    wordLength: [5, 6],
+    speed: 1.8,
     size: 30,
     score: 150,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -77,8 +75,7 @@ const ENEMY_TYPES = {
     color: '#94a3b8',
     glowColor: '#64748b',
     hp: 1,
-    speed: 1.0,
-    wordLength: [7, 9],
+    speed: 1.5,
     size: 34,
     score: 200,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -120,8 +117,7 @@ const ENEMY_TYPES = {
     color: '#ef4444',
     glowColor: '#dc2626',
     hp: 1,
-    speed: 0.7,
-    wordLength: [9, 12],
+    speed: 1.5,
     size: 40,
     score: 350,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -172,9 +168,8 @@ const ENEMY_TYPES = {
     name: 'ボス',
     color: '#f59e0b',
     glowColor: '#d97706',
-    hp: 3,
-    speed: 0.55,
-    wordLength: [7, 9],
+    hp: 10,
+    speed: 1.4,
     size: 250,
     score: 500,
     draw(ctx, x, y, size, hp, maxHp) {
@@ -244,7 +239,7 @@ const WAVE_CONFIGS = {
     speedMult: 1.0,
     generate(waveNum) {
       const enemies = [];
-      const count = 3 + waveNum;
+      const count = 7 + waveNum;
       for (let i = 0; i < count; i++) {
         if (waveNum >= 5 && i === count - 1) {
           enemies.push('boss');
@@ -262,10 +257,10 @@ const WAVE_CONFIGS = {
   normal: {
     waves: 5,
     wallHp: 5,
-    speedMult: 1.2,
+    speedMult: 1.3,
     generate(waveNum) {
       const enemies = [];
-      const count = 4 + Math.floor(waveNum * 1.0);
+      const count = 9 + waveNum;
       for (let i = 0; i < count; i++) {
         if (waveNum === 5 && i === count - 1) {
           enemies.push('boss');
@@ -285,10 +280,10 @@ const WAVE_CONFIGS = {
   hard: {
     waves: 5,
     wallHp: 5,
-    speedMult: 1.5,
+    speedMult: 1.7,
     generate(waveNum) {
       const enemies = [];
-      const count = 5 + Math.floor(waveNum * 0.9);
+      const count = 11 + waveNum;
       for (let i = 0; i < count; i++) {
         if (waveNum === 5 && i === count - 1) {
           enemies.push('boss');

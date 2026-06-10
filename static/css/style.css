@@ -173,6 +173,107 @@ body {
   color: #d4a017;
 }
 
+/* ===== CAVE STRIKE title — live 3D cave background (overrides above) ===== */
+/* Fallback so the title is never blank-white if WebGL fails to draw
+   (server down / GL context exhausted): a dark cave-colored gradient sits
+   under the canvas. */
+#title-screen {
+  background: radial-gradient(ellipse at center, #1a0e08 0%, #08040c 62%, #000000 100%);
+}
+#titleCanvas3d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+.title-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.55) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 28%, transparent 66%, rgba(0, 0, 0, 0.72));
+}
+#title-screen .title-container {
+  position: relative;
+  z-index: 2;
+  max-width: 560px;
+}
+#title-screen .game-title {
+  font-size: 84px;
+  line-height: 0.95;
+  letter-spacing: 6px;
+  background: linear-gradient(180deg, #ffe6a0 0%, #ff9a32 38%, #e23a18 72%, #7a1208 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 18px rgba(255, 120, 30, 0.55)) drop-shadow(0 0 40px rgba(200, 40, 10, 0.35));
+  animation: titleFlicker 3.6s infinite;
+}
+@keyframes titleFlicker {
+  0%, 100% { filter: drop-shadow(0 0 18px rgba(255, 120, 30, 0.55)) drop-shadow(0 0 40px rgba(200, 40, 10, 0.35)); }
+  45% { filter: drop-shadow(0 0 13px rgba(255, 110, 28, 0.42)) drop-shadow(0 0 30px rgba(200, 40, 10, 0.26)); }
+  55% { filter: drop-shadow(0 0 26px rgba(255, 145, 45, 0.72)) drop-shadow(0 0 54px rgba(220, 55, 18, 0.46)); }
+  72% { filter: drop-shadow(0 0 11px rgba(255, 100, 25, 0.38)) drop-shadow(0 0 24px rgba(190, 35, 8, 0.24)); }
+}
+#title-screen .subtitle {
+  color: #c9b79a;
+  font-size: 15px;
+  letter-spacing: 3px;
+  margin-bottom: 38px;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.85);
+}
+#title-screen .difficulty-select {
+  gap: 12px;
+  margin-bottom: 22px;
+}
+#title-screen .diff-btn {
+  background: linear-gradient(145deg, rgba(34, 22, 14, 0.82), rgba(12, 8, 6, 0.9));
+  border: 2px solid #3a2a1c;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 180, 100, 0.08), inset 0 -3px 8px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(1px);
+  transition: all 0.18s;
+}
+#title-screen .diff-btn.easy { border-color: #7a9a3a; }
+#title-screen .diff-btn.normal { border-color: #e0962a; }
+#title-screen .diff-btn.hard { border-color: #c0291a; }
+#title-screen .diff-btn.easy .diff-name { color: #a6d050; }
+#title-screen .diff-btn.normal .diff-name { color: #f0b450; }
+#title-screen .diff-btn.hard .diff-name { color: #e6493a; }
+#title-screen .diff-btn:hover { transform: translateY(-2px); filter: brightness(1.15); }
+#title-screen .diff-btn.easy:hover { box-shadow: 0 0 22px rgba(122, 154, 58, 0.45), inset 0 -3px 8px rgba(0, 0, 0, 0.5); }
+#title-screen .diff-btn.normal:hover { box-shadow: 0 0 22px rgba(224, 150, 42, 0.5), inset 0 -3px 8px rgba(0, 0, 0, 0.5); }
+#title-screen .diff-btn.hard:hover { box-shadow: 0 0 22px rgba(192, 41, 26, 0.5), inset 0 -3px 8px rgba(0, 0, 0, 0.5); }
+#title-screen .diff-desc { color: #9a8a72; }
+#title-screen #btn-ranking {
+  position: relative;
+  z-index: 2;
+  border: 1px solid #5a4226;
+  color: #d8b06a;
+  background: rgba(20, 12, 6, 0.5);
+  letter-spacing: 2px;
+}
+#title-screen #btn-ranking:hover {
+  border-color: #ff9a32;
+  color: #ffc06a;
+  box-shadow: 0 0 16px rgba(255, 150, 40, 0.35);
+}
+#title-screen .how-to-play {
+  margin-top: 30px;
+  background: rgba(18, 12, 8, 0.6);
+  border: 1px solid #3a2a1c;
+  border-radius: 8px;
+  backdrop-filter: blur(3px);
+}
+#title-screen .how-to-play h3 { color: #c9a060; }
+#title-screen .how-to-play li { color: #b0a088; }
+#title-screen .how-to-play li::before { content: '▸ '; color: #ff9a32; }
+
 /* Game Screen */
 #game-screen {
   background: #0c1a0c;
